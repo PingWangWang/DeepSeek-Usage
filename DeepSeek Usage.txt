@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.12
+// @version      1.9.13
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -59,8 +59,39 @@
     keyUnitPrices: {},         // { model: { promptMiss: 单价, promptHit: 单价, response: 单价 } }
 
     // Key 明细表格显示状态
-    keyTableVisible: false,    // 默认不显示表格详情
+    keyTableVisible: loadKeyTableVisible(),    // 默认不显示表格详情（已持久化）
+
+    // 各图表区块显示状态（持久化到 localStorage）
+    sectionVisible: loadSectionVisible(),
   };
+
+  function loadSectionVisible() {
+    try {
+      const saved = localStorage.getItem("dsapi_plus_section_visible");
+      if (saved) return JSON.parse(saved);
+    } catch (e) { /* ignore */ }
+    return { requests: false, tokens: false, cacheRate: false, composition: false, models: false };
+  }
+
+  function saveSectionVisible() {
+    try {
+      localStorage.setItem("dsapi_plus_section_visible", JSON.stringify(state.sectionVisible));
+    } catch (e) { /* ignore */ }
+  }
+
+  function loadKeyTableVisible() {
+    try {
+      const saved = localStorage.getItem("dsapi_plus_key_table_visible");
+      return saved === "true";
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function saveKeyTableVisible() {
+    try {
+      localStorage.setItem("dsapi_plus_key_table_visible", String(state.keyTableVisible));
+    } catch (e) { /* ignore */ }
+  }
 
   function isUsagePage() {
     return location.pathname === "/usage" || location.pathname.startsWith("/usage/");
@@ -150,6 +181,34 @@
       .dsapi-plus-refresh:hover {
         background: rgba(2, 14, 54, 0.08);
       }
+      .dsapi-plus-toggle-section-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 2px;
+        min-width: 64px;
+        text-align: center;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-toggle-section-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-toggle-section-btn.active {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.08);
+        color: var(--dsapi-plus-text);
+        border-color: var(--dsapi-plus-text);
+      }
       .dsapi-plus-toggle-key-btn {
         background: transparent;
         border: 1px solid var(--dsapi-plus-muted);
@@ -165,6 +224,27 @@
         transition: opacity 0.15s;
       }
       .dsapi-plus-toggle-key-btn:hover {
+        opacity: 1;
+      }
+      .dsapi-plus-toggle-chart-btn {
+        background: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        color: var(--dsapi-plus-muted);
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        opacity: 0.5;
+        transition: opacity 0.15s;
+      }
+      .dsapi-plus-toggle-chart-btn:hover {
         opacity: 1;
       }
       .dsapi-plus-debug {
@@ -347,6 +427,15 @@
       }
       body.dark .dsapi-plus-table th {
         background: rgba(255, 255, 255, 0.06);
+      }
+      body.dark .dsapi-plus-toggle-section-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-toggle-section-btn.active {
+        background: rgba(255, 255, 255, 0.12);
+        color: var(--dsapi-plus-text);
+        border-color: var(--dsapi-plus-text);
       }
       @media (max-width: 920px) {
         .dsapi-plus-chart-grid {
@@ -1124,6 +1213,11 @@
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
+          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.requests ? ' active' : ''}" data-section="requests">请求</button>
+          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.tokens ? ' active' : ''}" data-section="tokens">Tokens</button>
+          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存</button>
+          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.composition ? ' active' : ''}" data-section="composition">Token构成</button>
+          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型</button>
           <button type="button" class="dsapi-plus-refresh">刷新</button>
         </div>
       </div>
@@ -1139,28 +1233,28 @@
         </div>
 
         <div class="dsapi-plus-chart-grid">
-          <div class="dsapi-plus-chart-block">
+          <div class="dsapi-plus-chart-block" style="display:${state.sectionVisible.requests ? '' : 'none'};">
             ${chartHeading("API 请求次数汇总", formatInteger(amount.aggregate.request))}
             <div class="dsapi-plus-chart-frame">
               <div class="dsapi-plus-chart" data-dsapi-chart="requests"></div>
             </div>
           </div>
 
-          <div class="dsapi-plus-chart-block">
+          <div class="dsapi-plus-chart-block" style="display:${state.sectionVisible.tokens ? '' : 'none'};">
             ${chartHeading("Tokens 汇总", formatInteger(tokenTotal))}
             <div class="dsapi-plus-chart-frame">
               <div class="dsapi-plus-chart" data-dsapi-chart="tokens"></div>
             </div>
           </div>
 
-          <div class="dsapi-plus-chart-block">
+          <div class="dsapi-plus-chart-block" style="display:${state.sectionVisible.cacheRate ? '' : 'none'};">
             ${chartHeading("缓存命中率", formatPercent(cacheHitRate(amount.aggregate)))}
             <div class="dsapi-plus-chart-frame">
               <div class="dsapi-plus-chart" data-dsapi-chart="cacheRate"></div>
             </div>
           </div>
 
-          <div class="dsapi-plus-chart-block">
+          <div class="dsapi-plus-chart-block" style="display:${state.sectionVisible.composition ? '' : 'none'};">
             ${chartHeading("Token 构成", `缓存命中 ${formatPercent(cacheHitRate(amount.aggregate))}`)}
             <div class="dsapi-plus-chart-frame">
               <div class="dsapi-plus-chart" data-dsapi-chart="composition"></div>
@@ -1168,7 +1262,7 @@
           </div>
         </div>
 
-        <div class="dsapi-plus-section">
+        <div class="dsapi-plus-section" style="display:${state.sectionVisible.models ? '' : 'none'};">
           <div class="dsapi-plus-section-head">
             <div class="dsapi-plus-section-title">模型明细</div>
           </div>
@@ -2456,6 +2550,7 @@
       toggleBtn.addEventListener("click", () => {
         state.keyTableVisible = !state.keyTableVisible;
         toggleBtn.textContent = state.keyTableVisible ? "隐藏表格详情" : "显示表格详情";
+        saveKeyTableVisible();
         const keySection = panel.querySelector(".dsapi-plus-section:last-child");
         if (!keySection) return;
         const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
@@ -2466,6 +2561,29 @@
         for (const { instance } of state.charts) instance?.resize();
       });
     }
+
+    // 图表区块显示切换（事件代理）
+    // 图表区块显示切换
+    panel.querySelectorAll(".dsapi-plus-toggle-section-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const section = btn.dataset.section;
+        if (!section || !(section in state.sectionVisible)) return;
+        state.sectionVisible[section] = !state.sectionVisible[section];
+        btn.classList.toggle("active", state.sectionVisible[section]);
+        saveSectionVisible();
+        let block;
+        if (section === "models") {
+          block = panel.querySelector(".dsapi-plus-section");
+        } else {
+          const chartEl = panel.querySelector(`[data-dsapi-chart="${section}"]`);
+          if (chartEl) block = chartEl.closest(".dsapi-plus-chart-block");
+        }
+        if (block) {
+          block.style.display = state.sectionVisible[section] ? "" : "none";
+        }
+        for (const { instance } of state.charts) instance?.resize();
+      });
+    });
 
   }
 
