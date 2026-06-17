@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.0
+// @version      1.9.8
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -1101,7 +1101,6 @@
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
-          <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
           <button type="button" class="dsapi-plus-refresh">刷新</button>
         </div>
       </div>
@@ -1176,10 +1175,10 @@
             <button type="button" class="dsapi-plus-refresh dsapi-plus-key-btn" style="margin-left:auto;">导入Key明细</button>
           </div>
           ${sortedKeys.length ? renderKeyTable(sortedKeys, cost) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
-          <div style="margin-top:18px;">
+          <div class="dsapi-plus-key-chart" style="margin-top:8px;">
             ${chartHeading("Key 费用分布", sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无数据")}
-            <div class="dsapi-plus-chart-frame" style="height:200px;">
-              ${sortedKeys.length ? '<div class="dsapi-plus-chart" style="height:200px;" data-dsapi-chart="keyCost"></div>' : '<div class="dsapi-plus-message">暂无 Key 费用数据。</div>'}
+            <div class="dsapi-plus-chart-frame" style="height:460px;">
+              ${sortedKeys.length ? '<div class="dsapi-plus-chart" style="height:460px;" data-dsapi-chart="keyCost"></div>' : '<div class="dsapi-plus-message">暂无 Key 费用数据。</div>'}
             </div>
           </div>
         </div>
@@ -1834,7 +1833,7 @@
     const names = data.map((k) => k.key);
     return {
       animation: false,
-      grid: { left: 72, right: 90, top: 12, bottom: 12 },
+      grid: { left: 72, right: 90, top: 12, bottom: 28 },
       tooltip: {
         confine: true,
         trigger: "axis",
@@ -1861,14 +1860,15 @@
         data: names,
         axisTick: { show: false },
         axisLine: { show: false },
-        axisLabel: { color: textColor, width: 60, overflow: "truncate" },
+        axisLabel: { color: textColor, width: 72, overflow: "truncate" },
       },
       series: [
         {
           name: "未缓存费用",
           type: "bar",
           stack: "cost",
-          barMaxWidth: 16,
+          barMaxWidth: 200,
+          barCategoryGap: "2%",
           data: data.map((k) => k.inputMissCost),
           itemStyle: { color: "#E87461" },
           emphasis: { disabled: true },
@@ -1877,7 +1877,8 @@
           name: "缓存费用",
           type: "bar",
           stack: "cost",
-          barMaxWidth: 16,
+          barMaxWidth: 200,
+          barCategoryGap: "2%",
           data: data.map((k) => k.inputHitCost),
           itemStyle: { color: "#60B3FE" },
           emphasis: { disabled: true },
@@ -1886,7 +1887,8 @@
           name: "输出费用",
           type: "bar",
           stack: "cost",
-          barMaxWidth: 16,
+          barMaxWidth: 200,
+          barCategoryGap: "2%",
           data: data.map((k) => k.outputCost),
           label: {
             show: true,
@@ -1938,7 +1940,7 @@
       },
       series: [{
         type: "bar",
-        barMaxWidth: 12,
+        barMaxWidth: 48,
         data: items.map((item) => ({ value: item.value, itemStyle: { color: item.color } })),
         label: {
           show: true,
@@ -2303,7 +2305,13 @@
       if (tableWrap) {
         tableWrap.outerHTML = newHTML;
       } else {
-        keySection.insertAdjacentHTML("beforeend", newHTML);
+        // 插入到图表容器之前
+        const chartDiv = keySection.querySelector(".dsapi-plus-key-chart");
+        if (chartDiv) {
+          chartDiv.insertAdjacentHTML("beforebegin", newHTML);
+        } else {
+          keySection.insertAdjacentHTML("beforeend", newHTML);
+        }
         // 移除之前的提示消息
         const oldMsg = keySection.querySelector(".dsapi-plus-message");
         if (oldMsg) oldMsg.remove();
