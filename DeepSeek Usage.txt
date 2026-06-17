@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.9
+// @version      1.9.12
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -57,6 +57,9 @@
     keyDetailError: "",        // 加载错误信息
     keyDetailUpdateTime: "",   // 上次成功导入的时间
     keyUnitPrices: {},         // { model: { promptMiss: 单价, promptHit: 单价, response: 单价 } }
+
+    // Key 明细表格显示状态
+    keyTableVisible: false,    // 默认不显示表格详情
   };
 
   function isUsagePage() {
@@ -146,6 +149,23 @@
       }
       .dsapi-plus-refresh:hover {
         background: rgba(2, 14, 54, 0.08);
+      }
+      .dsapi-plus-toggle-key-btn {
+        background: transparent;
+        border: 1px solid var(--dsapi-plus-muted);
+        color: var(--dsapi-plus-muted);
+        padding: 4px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        white-space: nowrap;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+      }
+      .dsapi-plus-toggle-key-btn:hover {
+        opacity: 1;
       }
       .dsapi-plus-debug {
         appearance: none;
@@ -1173,13 +1193,15 @@
           <div class="dsapi-plus-section-head">
             <div class="dsapi-plus-section-title">Key 明细</div>
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
-            <span class="dsapi-plus-section-meta" style="color:var(--dsapi-plus-muted);font-size:11px;">需手动导入，不会自动刷新</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
-            <button type="button" class="dsapi-plus-refresh dsapi-plus-key-btn" style="margin-left:auto;">导入Key明细</button>
+            <div style="display:flex;gap:8px;margin-left:auto;">
+              <button type="button" class="dsapi-plus-toggle-key-btn">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
+              <button type="button" class="dsapi-plus-refresh dsapi-plus-key-btn">导入Key明细</button>
+            </div>
           </div>
-          ${sortedKeys.length ? renderKeyTable(sortedKeys, cost) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
+          ${sortedKeys.length ? renderKeyTable(sortedKeys, cost, state.keyTableVisible) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
           <div class="dsapi-plus-key-chart" style="margin-top:8px;">
-            ${chartHeading("Key 费用分布", sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无数据")}
+            ${chartHeading("Key 费用分布", "")}
             <div class="dsapi-plus-chart-frame" style="height:${keyChartHeight}px;">
               ${sortedKeys.length ? `<div class="dsapi-plus-chart" style="height:${keyChartHeight}px;" data-dsapi-chart="keyCost"></div>` : '<div class="dsapi-plus-message">暂无 Key 费用数据。</div>'}
             </div>
@@ -1287,7 +1309,7 @@
     return `
       <div class="dsapi-plus-chart-heading">
         <span class="dsapi-plus-chart-heading-title">${escapeHtml(title)}</span>
-        <span class="dsapi-plus-chart-heading-value">${escapeHtml(value)}</span>
+        ${value ? `<span class="dsapi-plus-chart-heading-value">${escapeHtml(value)}</span>` : ""}
       </div>
     `;
   }
@@ -1609,7 +1631,7 @@
         const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
         if (tableWrap) {
           if (sortedKeys.length) {
-            tableWrap.outerHTML = renderKeyTable(sortedKeys, cost);
+            tableWrap.outerHTML = renderKeyTable(sortedKeys, cost, state.keyTableVisible);
           } else {
             const msg = keySection.querySelector(".dsapi-plus-message");
             if (!msg) {
@@ -1621,7 +1643,7 @@
           const msg = keySection.querySelector(".dsapi-plus-message");
           if (sortedKeys.length) {
             if (msg) msg.remove();
-            keySection.insertAdjacentHTML("beforeend", renderKeyTable(sortedKeys, cost));
+            keySection.insertAdjacentHTML("beforeend", renderKeyTable(sortedKeys, cost, state.keyTableVisible));
           }
         }
       }
@@ -1845,10 +1867,14 @@
         formatter: (params) => {
           const item = data[params[0]?.dataIndex];
           if (!item) return "";
+          const hitRate = item.inputHitTokens + item.inputMissTokens > 0
+            ? item.inputHitTokens / (item.inputHitTokens + item.inputMissTokens)
+            : 0;
           return tooltipHtml(item.key, [
             { color: "#E87461", label: "未缓存费用", value: formatCnyAmount(item.inputMissCost, 6) },
             { color: "#60B3FE", label: "缓存费用", value: formatCnyAmount(item.inputHitCost, 6) },
             { color: "#7BCB99", label: "输出费用", value: formatCnyAmount(item.outputCost, 6) },
+            { color: "#A78BFA", label: "缓存命中率", value: formatPercent(hitRate) },
           ]);
         },
       },
@@ -2007,7 +2033,7 @@
     return parts.length ? parts.join(" + ") : "0";
   }
 
-  function renderKeyTable(keys, costBlocks) {
+  function renderKeyTable(keys, costBlocks, visible = true) {
     const rows = keys
       .map((key) => {
         const costText = costForKey(costBlocks, key.key);
@@ -2027,7 +2053,7 @@
       .join("");
 
     return `
-      <div class="dsapi-plus-table-wrap">
+      <div class="dsapi-plus-table-wrap"${visible ? '' : ' style="display:none;"'}>
         <table class="dsapi-plus-table">
           <thead>
             <tr>
@@ -2047,7 +2073,7 @@
     `;
   }
 
-  function renderKeyTableForExport(keys, unitPrices) {
+  function renderKeyTableForExport(keys, unitPrices, visible = true) {
     const rows = keys
       .map((key) => {
         const totalCost = key.inputMissCost + key.inputHitCost + key.outputCost;
@@ -2068,7 +2094,7 @@
       .join("");
 
     return `
-      <div class="dsapi-plus-table-wrap">
+      <div class="dsapi-plus-table-wrap"${visible ? '' : ' style="display:none;"'}>
         <table class="dsapi-plus-table">
           <thead>
             <tr>
@@ -2304,7 +2330,7 @@
       const existingMsg = keySection.querySelector(".dsapi-plus-key-loading");
       if (existingMsg) existingMsg.remove();
       const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
-      const newHTML = renderKeyTableForExport(state.keyDetailData, state.keyUnitPrices);
+      const newHTML = renderKeyTableForExport(state.keyDetailData, state.keyUnitPrices, state.keyTableVisible);
       if (tableWrap) {
         tableWrap.outerHTML = newHTML;
       } else {
@@ -2370,7 +2396,7 @@
     });
   }
 
-  function renderKeyTable(keys, costBlocks) {
+  function renderKeyTable(keys, costBlocks, visible = true) {
     const rows = keys
       .map((key) => {
         const costText = costForKey(costBlocks, key.key);
@@ -2390,7 +2416,7 @@
       .join("");
 
     return `
-      <div class="dsapi-plus-table-wrap">
+      <div class="dsapi-plus-table-wrap"${visible ? '' : ' style="display:none;"'}>
         <table class="dsapi-plus-table">
           <thead>
             <tr>
@@ -2421,6 +2447,23 @@
         const period = getSelectedPeriod();
         const controller = new AbortController();
         fetchKeyDetailFromExport(period, controller.signal);
+      });
+    }
+
+    // 切换 Key 明细表格显示
+    const toggleBtn = panel.querySelector(".dsapi-plus-toggle-key-btn");
+    if (toggleBtn) {
+      toggleBtn.addEventListener("click", () => {
+        state.keyTableVisible = !state.keyTableVisible;
+        toggleBtn.textContent = state.keyTableVisible ? "隐藏表格详情" : "显示表格详情";
+        const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+        if (!keySection) return;
+        const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
+        if (tableWrap) {
+          tableWrap.style.display = state.keyTableVisible ? "" : "none";
+        }
+        // 表格显示状态变化后调整图表尺寸
+        for (const { instance } of state.charts) instance?.resize();
       });
     }
 
