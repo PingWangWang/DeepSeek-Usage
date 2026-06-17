@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.13
+// @version      1.9.14
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -63,6 +63,9 @@
 
     // 各图表区块显示状态（持久化到 localStorage）
     sectionVisible: loadSectionVisible(),
+
+    // 原生内容（页面原有的每月用量等）显示状态
+    nativeContentVisible: loadNativeContentVisible(),
   };
 
   function loadSectionVisible() {
@@ -90,6 +93,20 @@
   function saveKeyTableVisible() {
     try {
       localStorage.setItem("dsapi_plus_key_table_visible", String(state.keyTableVisible));
+    } catch (e) { /* ignore */ }
+  }
+
+  function loadNativeContentVisible() {
+    try {
+      const saved = localStorage.getItem("dsapi_plus_native_content_visible");
+      return saved !== "false"; // 默认显示
+    } catch (e) { /* ignore */ }
+    return true;
+  }
+
+  function saveNativeContentVisible() {
+    try {
+      localStorage.setItem("dsapi_plus_native_content_visible", String(state.nativeContentVisible));
     } catch (e) { /* ignore */ }
   }
 
@@ -208,6 +225,27 @@
         background: rgba(2, 14, 54, 0.08);
         color: var(--dsapi-plus-text);
         border-color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-toggle-native-btn {
+        appearance: none;
+        border: 1px dashed var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.6;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-toggle-native-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+        border-style: solid;
       }
       .dsapi-plus-toggle-key-btn {
         background: transparent;
@@ -436,6 +474,11 @@
         background: rgba(255, 255, 255, 0.12);
         color: var(--dsapi-plus-text);
         border-color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-toggle-native-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+        border-style: solid;
       }
       @media (max-width: 920px) {
         .dsapi-plus-chart-grid {
@@ -1218,6 +1261,7 @@
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存</button>
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.composition ? ' active' : ''}" data-section="composition">Token构成</button>
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型</button>
+          <button type="button" class="dsapi-plus-toggle-native-btn" style="margin-left:4px;">${state.nativeContentVisible ? '隐藏原生内容' : '显示原生内容'}</button>
           <button type="button" class="dsapi-plus-refresh">刷新</button>
         </div>
       </div>
@@ -2530,6 +2574,16 @@
     `;
   }
 
+  function toggleNativeContent(show) {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel || !panel.parentNode) return;
+    const siblings = Array.from(panel.parentNode.children);
+    const idx = siblings.indexOf(panel);
+    for (let i = idx + 1; i < siblings.length; i++) {
+      siblings[i].style.display = show ? "" : "none";
+    }
+  }
+
   function bindRefresh(panel) {
     const button = panel.querySelector(".dsapi-plus-refresh");
     if (button) button.addEventListener("click", () => refresh(true));
@@ -2584,6 +2638,19 @@
         for (const { instance } of state.charts) instance?.resize();
       });
     });
+
+    // 原生内容显示切换
+    const nativeBtn = panel.querySelector(".dsapi-plus-toggle-native-btn");
+    if (nativeBtn) {
+      nativeBtn.addEventListener("click", () => {
+        state.nativeContentVisible = !state.nativeContentVisible;
+        nativeBtn.textContent = state.nativeContentVisible ? "隐藏原生内容" : "显示原生内容";
+        saveNativeContentVisible();
+        toggleNativeContent(state.nativeContentVisible);
+      });
+    }
+    // 初始化时应用原生内容显示状态
+    toggleNativeContent(state.nativeContentVisible);
 
   }
 
