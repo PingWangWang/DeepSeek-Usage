@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.15
+// @version      1.9.16
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -1414,8 +1414,7 @@
   function restoreKeyDetailData(panel) {
     const saved = loadKeyDetailData();
     if (!saved || !saved.data || !saved.data.length) return;
-    // 如果已有从导入获取的实时数据则不覆盖
-    if (state.keyDetailData && state.keyDetailData.length) return;
+    // 全量重渲染后，用记忆数据覆盖面板中的 Key 明细内容
     state.keyDetailData = saved.data;
     state.keyUnitPrices = saved.unitPrices || {};
     state.keyDetailUpdateTime = saved.updateTime || "";
