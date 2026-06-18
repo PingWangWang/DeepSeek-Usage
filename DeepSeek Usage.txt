@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.35
+// @version      1.9.39
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入、按模型统计）、月份选择、自动刷新等功能，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -73,6 +73,10 @@
     // 自动刷新
     autoRefreshInterval: loadAutoRefreshInterval(),
     autoRefreshTimer: 0,       // setInterval 句柄
+
+    // 每日详情
+    keyDetailDailyVisible: false,
+    keyDetailDailyData: null,  // { dates: [], series: [{name, data}] }
   };
 
   function loadSectionVisible() {
@@ -124,6 +128,7 @@
         data: state.keyDetailData,
         unitPrices: state.keyUnitPrices,
         updateTime: state.keyDetailUpdateTime,
+        dailyData: state.keyDetailDailyData,
       };
       localStorage.setItem("dsapi_plus_key_detail", JSON.stringify(payload));
     } catch (e) { /* storage quota 不足时静默忽略 */ }
@@ -445,6 +450,32 @@
         border-color: #22c55e;
         background: rgba(34, 197, 94, 0.08);
       }
+      .dsapi-plus-daily-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-daily-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-daily-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+      }
       .dsapi-plus-toggle-chart-btn {
         background: none;
         border: 1px solid var(--dsapi-plus-muted);
@@ -679,7 +710,15 @@
         color: #4ade80;
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
-        border-color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-daily-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-daily-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
       }
       body.dark .dsapi-plus-auto-refresh-btn:hover {
         background: rgba(255, 255, 255, 0.08);
@@ -1575,6 +1614,7 @@
             <div style="display:flex;gap:8px;margin-left:auto;">
               <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
               <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
+              <button type="button" class="dsapi-plus-daily-btn${state.keyDetailDailyVisible ? ' active' : ''}">${state.keyDetailDailyVisible ? '隐藏每日详情' : '显示每日详情'}</button>
             </div>
           </div>
           ${sortedKeys.length ? renderKeyTable(sortedKeys, cost, state.keyTableVisible) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
@@ -1582,6 +1622,12 @@
             ${chartHeading("Key 费用分布", "")}
             <div class="dsapi-plus-chart-frame" style="height:${keyChartHeight}px;">
               ${sortedKeys.length ? `<div class="dsapi-plus-chart" style="height:${keyChartHeight}px;" data-dsapi-chart="keyCost"></div>` : '<div class="dsapi-plus-message">暂无 Key 费用数据。</div>'}
+            </div>
+          </div>
+          <div class="dsapi-plus-daily-chart" style="display:${state.keyDetailDailyVisible ? '' : 'none'};margin-top:8px;width:100%;">
+            ${chartHeading("每日费用明细", "")}
+            <div class="dsapi-plus-chart-frame" style="height:200px;">
+              <div class="dsapi-plus-chart" style="width:100%;height:200px;" data-dsapi-chart="keyDaily"></div>
             </div>
           </div>
         </div>
@@ -1630,6 +1676,8 @@
     initCharts(panel, panelData);
     // 恢复记忆的 Key 明细数据
     restoreKeyDetailData(panel);
+    // 全量重渲染后恢复原生内容显示状态
+    toggleNativeContent(state.nativeContentVisible);
   }
 
   function restoreKeyDetailData(panel) {
@@ -1655,6 +1703,7 @@
     }
     // 全量重渲染后，用记忆数据覆盖面板中的 Key 明细内容
     state.keyDetailData = saved.data;
+    state.keyDetailDailyData = saved.dailyData || null;
     state.keyUnitPrices = saved.unitPrices || {};
     state.keyDetailUpdateTime = saved.updateTime || "";
     updateKeyDetailUI();
@@ -1929,6 +1978,7 @@
       case "composition": return buildCompositionChartOption(amount.aggregate);
       case "models": return buildModelsChartOption(sortedModels.slice(0, 8));
       case "keyCost": return buildKeyCostChartOption();
+      case "keyDaily": return buildKeyDailyChartOption();
       default: return null;
     }
   }
@@ -2081,7 +2131,7 @@
       .then((echarts) => {
         if (!panel.isConnected) return;
 
-        const keys = ["requests", "tokens", "cacheRate", "composition", "models", "keyCost"];
+        const keys = ["requests", "tokens", "cacheRate", "composition", "models", "keyCost", "keyDaily"];
         for (const key of keys) {
           const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
           const option = buildChartOption(key, panelData);
@@ -2361,7 +2411,7 @@
           type: "bar",
           stack: "cost",
           barMaxWidth: 200,
-          barCategoryGap: "10%",
+          barCategoryGap: "20%",
           data: data.map((k) => k.inputMissCost),
           itemStyle: { color: "#E87461" },
           emphasis: { disabled: true },
@@ -2371,7 +2421,7 @@
           type: "bar",
           stack: "cost",
           barMaxWidth: 200,
-          barCategoryGap: "10%",
+          barCategoryGap: "20%",
           data: data.map((k) => k.inputHitCost),
           itemStyle: { color: "#60B3FE" },
           emphasis: { disabled: true },
@@ -2381,7 +2431,7 @@
           type: "bar",
           stack: "cost",
           barMaxWidth: 200,
-          barCategoryGap: "10%",
+          barCategoryGap: "20%",
           data: data.map((k) => k.outputCost),
           label: {
             show: true,
@@ -2395,6 +2445,47 @@
         },
       ],
     };
+  }
+
+  function buildKeyDailyChartOption() {
+    const dailyData = state.keyDetailDailyData;
+    if (!dailyData || !dailyData.dates || !dailyData.dates.length || !dailyData.series || !dailyData.series.length) return null;
+    const textColor = getChartTextColor();
+    const gridColor = getChartGridColor();
+    const option = chartBaseOption();
+    option.grid.left = 56;
+    option.grid.right = 16;
+    option.xAxis.data = dailyData.dates;
+    option.tooltip.formatter = (params) => {
+      const rows = params.map((p, i) => ({
+        color: p.color,
+        label: p.seriesName,
+        value: formatCnyAmount(p.value, 4),
+      }));
+      return tooltipHtml(params[0]?.axisValue || "", rows);
+    };
+    option.yAxis.axisLabel.formatter = (v) => `¥${formatDecimal(v, 2)}`;
+    option.series = dailyData.series.map((s, i) => ({
+      name: s.name,
+      data: s.data,
+      type: "line",
+      smooth: true,
+      showSymbol: false,
+      itemStyle: { color: chartPalette(i) },
+      lineStyle: { color: chartPalette(i), width: 1.5 },
+      emphasis: { disabled: true },
+    }));
+    option.legend = {
+      show: true,
+      top: 0,
+      left: "center",
+      textStyle: { color: textColor, fontSize: 11 },
+      icon: "roundRect",
+      itemWidth: 14,
+      itemHeight: 8,
+    };
+    option.grid.top = 32;
+    return option;
   }
 
   function buildHorizontalBarOption(items) {
@@ -2448,15 +2539,11 @@
 
   function chartPalette(index) {
     return [
-      "#0C70F3",
-      "#60B3FE",
-      "#A0DCFD",
-      "#6E8BFF",
-      "#7BCBFF",
-      "#A7B8FF",
-      "#54D2B6",
-      "#B8E7FF",
-    ][index % 8];
+      "#E74C3C", "#3498DB", "#2ECC71", "#F39C12",
+      "#9B59B6", "#1ABC9C", "#E67E22", "#2980B9",
+      "#27AE60", "#D35400", "#8E44AD", "#16A085",
+      "#C0392B", "#3B82F6", "#10B981", "#F59E0B",
+    ][index % 16];
   }
 
   function tooltipHtml(title, rows) {
@@ -2687,6 +2774,7 @@
       const colPrice = idx(/^price$/i);                            // 单价列
       const colAmount = idx(/^amount$/i);                          // 用量列
       const colModel = idx(/model/i);                              // 模型列
+      const colDate = idx(/utc_date|date/i);                        // 日期列
 
       console.log("[DeepSeek Usage Panel Plus] CSV 字段映射", {
         api_key_name: colName >= 0 ? headers[colName] : "未找到",
@@ -2771,12 +2859,57 @@
 
       const sorted = Object.values(keyMap).sort((a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount);
 
+      // 8. 按 (key, date) 聚合每日费用（用于每日详情折线图）
+      const dailyMap = {};
+      const allDates = new Set();
+      for (const row of rows) {
+        const keyName = String(row[colName] || "unknown");
+        if (keyName === "unknown") continue;
+        const date = colDate >= 0 ? String(row[colDate] || "") : "";
+        if (!date) continue;
+        allDates.add(date);
+        const type = colType >= 0 ? String(row[colType] || "") : "";
+        const amount = colAmount >= 0 ? Number(row[colAmount]) || 0 : 0;
+        const price = colPrice >= 0 ? Number(row[colPrice]) || 0 : 0;
+        if (type === "request_count" || type === "calls" || type === "requests") continue;
+        const pairKey = keyName + "|||" + date;
+        if (!dailyMap[pairKey]) dailyMap[pairKey] = 0;
+        dailyMap[pairKey] += price * amount;
+      }
+      const sortedDates = Array.from(allDates).sort();
+      // 构建每 key 每日费用数组
+      const dailyCostByKey = {};
+      for (const row of rows) {
+        const keyName = String(row[colName] || "unknown");
+        if (keyName === "unknown") continue;
+        if (!dailyCostByKey[keyName]) {
+          dailyCostByKey[keyName] = { name: keyName, data: {} };
+          for (const d of sortedDates) dailyCostByKey[keyName].data[d] = 0;
+        }
+      }
+      for (const [pairKey, cost] of Object.entries(dailyMap)) {
+        const sep = pairKey.lastIndexOf("|||");
+        const k = pairKey.substring(0, sep);
+        const d = pairKey.substring(sep + 3);
+        if (dailyCostByKey[k]) dailyCostByKey[k].data[d] = cost;
+      }
+      const sortedKeys2 = Object.values(keyMap).sort((a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount);
+      const keyOrder = sortedKeys2.map((k) => k.key);
+      const dailyData = {
+        dates: sortedDates,
+        series: keyOrder.filter((k) => dailyCostByKey[k]).map((k) => ({
+          name: k,
+          data: sortedDates.map((d) => dailyCostByKey[k].data[d] || 0),
+        })),
+      };
+
       console.log("[DeepSeek Usage Panel Plus] Key 明细聚合结果", {
         keysCount: sorted.length,
         sample: sorted.slice(0, 3),
       });
 
       state.keyDetailData = sorted;
+      state.keyDetailDailyData = dailyData;
       state.keyDetailUpdateTime = new Date().toLocaleTimeString("zh-CN");
       state.keyUnitPrices = {}; // 不再需要，已从 CSV 获取实际价格
       state.keyDetailLoading = false;
@@ -3014,6 +3147,42 @@
             meta.textContent = state.groupByModel ? `${itemCount} 个活跃模型` : `${itemCount} 个活跃 Key`;
           }
           initOrUpdateKeyCostChart(keySection);
+        }
+        for (const { instance } of state.charts) instance?.resize();
+      });
+    }
+
+    // 每日详情切换
+    const dailyBtn = panel.querySelector(".dsapi-plus-daily-btn");
+    if (dailyBtn) {
+      dailyBtn.addEventListener("click", () => {
+        state.keyDetailDailyVisible = !state.keyDetailDailyVisible;
+        dailyBtn.textContent = state.keyDetailDailyVisible ? "隐藏每日详情" : "显示每日详情";
+        dailyBtn.classList.toggle("active", state.keyDetailDailyVisible);
+        const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
+        if (dailyChart) {
+          dailyChart.style.display = state.keyDetailDailyVisible ? "" : "none";
+        }
+        if (state.keyDetailDailyVisible) {
+          // 初始化或更新每日图表
+          const container = dailyChart?.querySelector('[data-dsapi-chart="keyDaily"]');
+          if (container) {
+            const option = buildKeyDailyChartOption();
+            if (option) {
+              getEcharts().then((echarts) => {
+                let instance = echarts.getInstanceByDom(container);
+                if (!instance) {
+                  instance = echarts.init(container, null, { renderer: "svg" });
+                  const zr = instance.getZr();
+                  zr.on("mousemove", (event) => startTooltipKeeper(instance, event));
+                  zr.on("globalout", () => { if (stopTooltipKeeper(instance)) flushPendingChartUpdates(); });
+                  state.charts.push({ key: "keyDaily", instance });
+                }
+                instance.setOption(option, { notMerge: true });
+                instance.resize();
+              });
+            }
+          }
         }
         for (const { instance } of state.charts) instance?.resize();
       });
@@ -3317,6 +3486,9 @@
     if (!panel.isConnected || panel.parentNode !== reference.parentNode || panel.nextSibling !== reference) {
       reference.parentNode.insertBefore(panel, reference);
     }
+
+    // 每次确保面板时重新应用原生内容显示状态
+    toggleNativeContent(state.nativeContentVisible);
 
     return panel;
   }
