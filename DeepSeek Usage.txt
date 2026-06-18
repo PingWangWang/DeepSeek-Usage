@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.32
+// @version      1.9.34
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -294,18 +294,23 @@
       }
       .dsapi-plus-refresh {
         appearance: none;
-        border: 0;
-        border-radius: 6px;
-        background: rgba(2, 14, 54, 0.05);
-        color: var(--dsapi-plus-text);
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 12px;
+        font-size: 11px;
         line-height: 18px;
-        padding: 5px 10px;
+        padding: 4px 6px;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
       }
       .dsapi-plus-refresh:hover {
-        background: rgba(2, 14, 54, 0.08);
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
       }
       .dsapi-plus-toggle-section-btn {
         appearance: none;
@@ -331,13 +336,13 @@
       }
       .dsapi-plus-toggle-section-btn.active {
         opacity: 1;
-        background: rgba(2, 14, 54, 0.08);
-        color: var(--dsapi-plus-text);
-        border-color: var(--dsapi-plus-text);
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
       }
       .dsapi-plus-toggle-native-btn {
         appearance: none;
-        border: 1px dashed var(--dsapi-plus-muted);
+        border: 1px solid var(--dsapi-plus-muted);
         border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
@@ -346,8 +351,10 @@
         font-size: 11px;
         line-height: 18px;
         padding: 4px 6px;
-        opacity: 0.6;
+        opacity: 0.7;
         transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
         white-space: nowrap;
       }
       .dsapi-plus-toggle-native-btn:hover {
@@ -362,6 +369,26 @@
         border-color: #22c55e;
         background: rgba(34, 197, 94, 0.08);
         border-style: solid;
+      }
+      .dsapi-plus-group-model-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-group-model-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
       }
       .dsapi-plus-group-model-btn.active {
         opacity: 1;
@@ -625,9 +652,9 @@
         color: var(--dsapi-plus-text);
       }
       body.dark .dsapi-plus-toggle-section-btn.active {
-        background: rgba(255, 255, 255, 0.12);
-        color: var(--dsapi-plus-text);
-        border-color: var(--dsapi-plus-text);
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
       }
       body.dark .dsapi-plus-toggle-native-btn:hover {
         background: rgba(255, 255, 255, 0.08);
@@ -644,11 +671,14 @@
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
       }
+      body.dark .dsapi-plus-group-model-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+      }
       body.dark .dsapi-plus-group-model-btn.active {
         color: #4ade80;
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
-        color: var(--dsapi-plus-text);
         border-color: var(--dsapi-plus-text);
       }
       body.dark .dsapi-plus-auto-refresh-btn:hover {
@@ -1543,9 +1573,8 @@
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
-              <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}" style="font-size:11px;background:transparent;border:1px solid var(--dsapi-plus-muted);color:var(--dsapi-plus-muted);padding:4px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;opacity:0.7;">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
+              <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
               <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
-              <button type="button" class="dsapi-plus-refresh dsapi-plus-key-btn">刷新Key明细</button>
             </div>
           </div>
           ${sortedKeys.length ? renderKeyTable(sortedKeys, cost, state.keyTableVisible) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
@@ -2933,12 +2962,10 @@
 
   function bindRefresh(panel) {
     const button = panel.querySelector(".dsapi-plus-refresh");
-    if (button) button.addEventListener("click", () => refresh(true));
-
-    // 导入 Key 明细按钮
-    const keyBtn = panel.querySelector(".dsapi-plus-key-btn");
-    if (keyBtn) {
-      keyBtn.addEventListener("click", () => {
+    if (button) {
+      button.addEventListener("click", () => {
+        refresh(true);
+        // 同时刷新 Key 明细
         const period = getSelectedPeriod();
         const controller = new AbortController();
         fetchKeyDetailFromExport(period, controller.signal);
