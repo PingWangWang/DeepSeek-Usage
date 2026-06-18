@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.28
+// @version      1.9.29
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -1352,8 +1352,9 @@
 
       <div class="dsapi-plus-body">
         <div class="dsapi-plus-summary">
-          ${summaryItem("当月费用", isCurrentPeriod ? todayCostText : monthCostText, "", isCurrentPeriod ? todayCostDetail : costDetail)}
-          ${summaryItem("当月平均消费", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
+          ${summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "")}
+          ${summaryItem("当月费用", monthCostText, "", costDetail)}
+          ${summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
           ${summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail)}
           ${isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : ""}
         </div>
@@ -1826,8 +1827,9 @@
     const summaryEl = panel.querySelector(".dsapi-plus-summary");
     if (summaryEl) {
       summaryEl.innerHTML =
-        summaryItem("当月费用", isCurrentPeriod ? todayCostText : monthCostText, "", isCurrentPeriod ? todayCostDetail : costDetail) +
-        summaryItem("当月平均消费", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
+        summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "") +
+        summaryItem("当月费用", monthCostText, "", costDetail) +
+        summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
         summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail) +
         (isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : "");
     }
