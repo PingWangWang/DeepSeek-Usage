@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.17
+// @version      1.9.26
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -66,6 +66,9 @@
 
     // 原生内容（页面原有的每月用量等）显示状态
     nativeContentVisible: loadNativeContentVisible(),
+
+    // 按模型分组开关
+    groupByModel: loadGroupByModel(),
   };
 
   function loadSectionVisible() {
@@ -113,11 +116,12 @@
   function saveKeyDetailData() {
     if (!state.keyDetailData || !state.keyDetailData.length) return;
     try {
-      localStorage.setItem("dsapi_plus_key_detail", JSON.stringify({
+      const payload = {
         data: state.keyDetailData,
         unitPrices: state.keyUnitPrices,
         updateTime: state.keyDetailUpdateTime,
-      }));
+      };
+      localStorage.setItem("dsapi_plus_key_detail", JSON.stringify(payload));
     } catch (e) { /* storage quota 不足时静默忽略 */ }
   }
 
@@ -127,6 +131,19 @@
       if (saved) return JSON.parse(saved);
     } catch (e) { /* ignore */ }
     return null;
+  }
+
+  function loadGroupByModel() {
+    try {
+      return localStorage.getItem("dsapi_plus_group_by_model") === "true";
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function saveGroupByModel() {
+    try {
+      localStorage.setItem("dsapi_plus_group_by_model", String(state.groupByModel));
+    } catch (e) { /* ignore */ }
   }
 
   function isUsagePage() {
@@ -186,6 +203,24 @@
         color: var(--dsapi-plus-muted);
         font-size: 12px;
         line-height: 18px;
+      }
+      .dsapi-plus-period-select {
+        background: transparent;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        color: var(--dsapi-plus-muted);
+        font: inherit;
+        font-size: 12px;
+        line-height: 18px;
+        padding: 2px 4px;
+        cursor: pointer;
+        outline: none;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+      }
+      .dsapi-plus-period-select:hover,
+      .dsapi-plus-period-select:focus {
+        opacity: 1;
       }
       .dsapi-plus-actions {
         display: flex;
@@ -499,6 +534,15 @@
         color: var(--dsapi-plus-text);
         border-style: solid;
       }
+      body.dark .dsapi-plus-period-select {
+        border-color: rgba(255, 255, 255, 0.3);
+        color: var(--dsapi-plus-muted);
+      }
+      body.dark .dsapi-plus-period-select:hover,
+      body.dark .dsapi-plus-period-select:focus {
+        border-color: rgba(255, 255, 255, 0.6);
+        color: var(--dsapi-plus-text);
+      }
       @media (max-width: 920px) {
         .dsapi-plus-chart-grid {
           grid-template-columns: 1fr;
@@ -773,6 +817,10 @@
   }
 
   function getSelectedPeriod() {
+    // 优先使用自定义月份下拉框
+    const customSelect = document.querySelector(".dsapi-plus-period-select");
+    if (customSelect && /^\d{4}-\d{1,2}$/.test(customSelect.value)) return customSelect.value;
+
     const selects = Array.from(document.querySelectorAll("select"));
     for (const select of selects) {
       const value = select.value || select.selectedOptions?.[0]?.value || "";
@@ -1072,9 +1120,9 @@
 
   function renderSkeleton(panel, period) {
     if (state.charts.length > 0) {
-      const subtitle = panel.querySelector(".dsapi-plus-subtitle");
+      const periodSelect = panel.querySelector(".dsapi-plus-period-select");
       const status = panel.querySelector(".dsapi-plus-status");
-      if (subtitle) subtitle.textContent = `${escapeHtml(period)} UTC`;
+      if (periodSelect) periodSelect.value = period;
       if (status) status.textContent = "加载中...";
       const banner = panel.querySelector(".dsapi-plus-error-banner");
       if (banner) banner.remove();
@@ -1086,7 +1134,7 @@
       <div class="dsapi-plus-head">
         <div class="dsapi-plus-title">
           <strong>扩展用量</strong>
-          <span class="dsapi-plus-subtitle">${escapeHtml(period)} UTC</span>
+          <select class="dsapi-plus-period-select">${buildPeriodOptions(period)}</select>
         </div>
         <div class="dsapi-plus-actions">
           <span class="dsapi-plus-status">加载中...</span>
@@ -1120,9 +1168,9 @@
     };
 
     if (state.charts.length > 0) {
-      const subtitle = panel.querySelector(".dsapi-plus-subtitle");
+      const periodSelect = panel.querySelector(".dsapi-plus-period-select");
       const status = panel.querySelector(".dsapi-plus-status");
-      if (subtitle) subtitle.textContent = `${escapeHtml(period)} UTC`;
+      if (periodSelect) periodSelect.value = period;
       if (status) status.textContent = "加载失败";
       const existing = panel.querySelector(".dsapi-plus-error-banner");
       if (existing) existing.remove();
@@ -1138,7 +1186,7 @@
       <div class="dsapi-plus-head">
         <div class="dsapi-plus-title">
           <strong>扩展用量</strong>
-          <span class="dsapi-plus-subtitle">${escapeHtml(period)} UTC</span>
+          <select class="dsapi-plus-period-select">${buildPeriodOptions(period)}</select>
         </div>
         <div class="dsapi-plus-actions">
           <span class="dsapi-plus-status">加载失败</span>
@@ -1148,6 +1196,22 @@
       ${errorBannerHTML(message, isAuth)}
     `;
     bindRefresh(panel);
+  }
+
+  function buildPeriodOptions(selectedPeriod) {
+    const now = new Date();
+    const currentMonth = now.getUTCMonth() + 1;
+    const currentYear = now.getUTCFullYear();
+    let html = "";
+    for (let i = 0; i < 12; i++) {
+      let m = currentMonth - i;
+      let y = currentYear;
+      if (m <= 0) { m += 12; y -= 1; }
+      const val = `${y}-${m}`;
+      const label = `${y}年${m}月${i === 0 ? " (当前)" : ""}`;
+      html += `<option value="${val}"${val === selectedPeriod ? " selected" : ""}>${label}</option>`;
+    }
+    return html;
   }
 
   function buildPanelData(data) {
@@ -1272,6 +1336,7 @@
       <div class="dsapi-plus-head">
         <div class="dsapi-plus-title">
           <strong>扩展用量</strong>
+          <select class="dsapi-plus-period-select">${buildPeriodOptions(period)}</select>
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
@@ -1287,12 +1352,10 @@
 
       <div class="dsapi-plus-body">
         <div class="dsapi-plus-summary">
-          ${summaryItem("今日消费", todayCostText, "", todayCostDetail)}
-          ${summaryItem("本月费用", monthlyCostText, "", costDetail)}
-          ${isCurrentPeriod ? "" : summaryItem("选中月份费用", monthCostText, "", costDetail)}
-          ${summaryItem(averageCostLabel, formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
-          ${summaryItem("本月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail)}
-          ${summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "")}
+          ${summaryItem("当月费用", isCurrentPeriod ? todayCostText : monthCostText, "", isCurrentPeriod ? todayCostDetail : costDetail)}
+          ${summaryItem("当月平均消费", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
+          ${summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail)}
+          ${isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : ""}
         </div>
 
         <div class="dsapi-plus-chart-grid">
@@ -1352,6 +1415,7 @@
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
+              <button type="button" class="dsapi-plus-group-model-btn" style="display:${state.keyTableVisible ? '' : 'none'};font-size:11px;background:transparent;border:1px solid var(--dsapi-plus-muted);color:var(--dsapi-plus-muted);padding:4px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;opacity:0.7;">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
               <button type="button" class="dsapi-plus-toggle-key-btn">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
               <button type="button" class="dsapi-plus-refresh dsapi-plus-key-btn">刷新Key明细</button>
             </div>
@@ -1414,6 +1478,24 @@
   function restoreKeyDetailData(panel) {
     const saved = loadKeyDetailData();
     if (!saved || !saved.data || !saved.data.length) return;
+    // 兼容旧数据：补充 byModel 中缺失的费用、model 名称等
+    for (const item of saved.data) {
+      if (item.byModel) {
+        for (const [name, m] of Object.entries(item.byModel)) {
+          if (m.model === undefined) m.model = name;
+          if (m.requestCount === undefined) m.requestCount = 0;
+          if (m.missCost === undefined || m.hitCost === undefined || m.outCost === undefined) {
+            // 按 token 比例分摊总费用到各模型（旧数据无明细费用时使用）
+            const totalMiss = item.inputMissTokens || 1;
+            const totalHit = item.inputHitTokens || 1;
+            const totalOut = item.outputTokens || 1;
+            m.missCost = (item.inputMissCost || 0) * (m.missTokens || 0) / totalMiss;
+            m.hitCost = (item.inputHitCost || 0) * (m.hitTokens || 0) / totalHit;
+            m.outCost = (item.outputCost || 0) * (m.outTokens || 0) / totalOut;
+          }
+        }
+      }
+    }
     // 全量重渲染后，用记忆数据覆盖面板中的 Key 明细内容
     state.keyDetailData = saved.data;
     state.keyUnitPrices = saved.unitPrices || {};
@@ -1736,20 +1818,18 @@
   function updatePanelIncremental(panel, panelData) {
     const { period, amount, summary, cost, monthlyCostText, monthCostText, todayCostText, todayCostDetail, costDetail, usageDetail, sortedModels, sortedKeys, tokenTotal, isCurrentPeriod, averageCostLabel, averageCostPerMillion, averageCostDetail, estimatedAvailableTokens, updateTime } = panelData;
 
-    const subtitle = panel.querySelector(".dsapi-plus-subtitle");
+    const periodSelect = panel.querySelector(".dsapi-plus-period-select");
     const status = panel.querySelector(".dsapi-plus-status");
-    if (subtitle) subtitle.textContent = `${escapeHtml(period)} UTC，数据可能有约 5 分钟延迟`;
+    if (periodSelect) periodSelect.value = period;
     if (status) status.textContent = `已更新 ${escapeHtml(updateTime)}`;
 
     const summaryEl = panel.querySelector(".dsapi-plus-summary");
     if (summaryEl) {
       summaryEl.innerHTML =
-        summaryItem("今日消费", todayCostText, "", todayCostDetail) +
-        summaryItem("本月费用", monthlyCostText, "", costDetail) +
-        (isCurrentPeriod ? "" : summaryItem("选中月份费用", monthCostText, "", costDetail)) +
-        summaryItem(averageCostLabel, formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
-        summaryItem("本月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail) +
-        summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "");
+        summaryItem("当月费用", isCurrentPeriod ? todayCostText : monthCostText, "", isCurrentPeriod ? todayCostDetail : costDetail) +
+        summaryItem("当月平均消费", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
+        summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail) +
+        (isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : "");
     }
 
     const headingValues = panel.querySelectorAll(".dsapi-plus-chart-heading-value");
@@ -2020,6 +2100,24 @@
     };
   }
 
+  function getKeyDetailData() {
+    // 始终返回按 Key 聚合的数据（含 byModel 子数据用于模型明细）
+    return state.keyDetailData;
+  }
+
+  function countModels() {
+    if (!state.keyDetailData) return 0;
+    const models = new Set();
+    for (const item of state.keyDetailData) {
+      if (item.byModel) {
+        for (const name of Object.keys(item.byModel)) {
+          if (name && name !== "unknown") models.add(name);
+        }
+      }
+    }
+    return models.size;
+  }
+
   function buildKeyCostChartOption() {
     const data = state.keyDetailData;
     if (!data || !data.length) return null;
@@ -2243,29 +2341,45 @@
     `;
   }
 
-  function renderKeyTableForExport(keys, unitPrices, visible = true) {
-    const rows = keys
-      .map((key) => {
-        const totalCost = key.inputMissCost + key.inputHitCost + key.outputCost;
-        const totalTokens = key.inputMissTokens + key.inputHitTokens + key.outputTokens;
-        const hitRate = key.inputHitTokens + key.inputMissTokens > 0
-          ? key.inputHitTokens / (key.inputHitTokens + key.inputMissTokens)
-          : 0;
-        return `
-          <tr>
-            <td title="${escapeHtml(key.key)}">${escapeHtml(key.key)}</td>
-            <td>${formatInteger(key.requestCount)}</td>
-            <td>${formatInteger(key.inputMissTokens)}</td>
-            <td>${formatInteger(key.inputHitTokens)}</td>
-            <td>${formatInteger(key.outputTokens)}</td>
+  function renderKeyTableForExport(keys, unitPrices, visible = true, byModel = false) {
+    const makeRow = (item, label, isSub = false) => {
+      const totalCost = isSub ? (item.missCost || 0) + (item.hitCost || 0) + (item.outCost || 0) : (item.inputMissCost || 0) + (item.inputHitCost || 0) + (item.outputCost || 0);
+      const missT = isSub ? (item.missTokens || 0) : (item.inputMissTokens || 0);
+      const hitT = isSub ? (item.hitTokens || 0) : (item.inputHitTokens || 0);
+      const outT = isSub ? (item.outTokens || 0) : (item.outputTokens || 0);
+      const missC = isSub ? (item.missCost || 0) : (item.inputMissCost || 0);
+      const hitC = isSub ? (item.hitCost || 0) : (item.inputHitCost || 0);
+      const outC = isSub ? (item.outCost || 0) : (item.outputCost || 0);
+      const totalTokens = missT + hitT + outT;
+      const hitRate = missT + hitT > 0 ? hitT / (missT + hitT) : 0;
+      const req = isSub ? (item.requestCount || 0) : (item.requestCount || 0);
+      return `
+          <tr${isSub ? ' style="color:var(--dsapi-plus-muted);font-size:11px;"' : ''}>
+            <td${isSub ? ' style="padding-left:24px;"' : ''} title="${escapeHtml(label)}">${escapeHtml(label)}</td>
+            <td>${formatInteger(req)}</td>
+            <td>${formatInteger(missT)}</td>
+            <td>${formatInteger(hitT)}</td>
+            <td>${formatInteger(outT)}</td>
             <td>${formatInteger(totalTokens)}</td>
             <td>${formatPercent(hitRate)}</td>
-            <td>${formatCnyAmount(key.inputMissCost, 6)}</td>
-            <td>${formatCnyAmount(key.inputHitCost, 6)}</td>
-            <td>${formatCnyAmount(key.outputCost, 6)}</td>
+            <td>${formatCnyAmount(missC, 6)}</td>
+            <td>${formatCnyAmount(hitC, 6)}</td>
+            <td>${formatCnyAmount(outC, 6)}</td>
             <td>${formatCnyAmount(totalCost, 6)}</td>
-          </tr>
-        `;
+          </tr>`;
+    };
+    const rows = keys
+      .map((key) => {
+        let html = makeRow(key, key.key);
+        if (byModel && key.byModel) {
+          const models = Object.entries(key.byModel)
+            .filter(([name]) => name && name !== "unknown")
+            .sort((a, b) => b[1].totalCost - a[1].totalCost);
+          for (const [modelName, modelData] of models) {
+            html += makeRow(modelData, modelData.model || modelName, true);
+          }
+        }
+        return html;
       })
       .join("");
 
@@ -2390,54 +2504,73 @@
         throw new Error(`CSV 缺少必要列，请检查表头：${headers.join(" | ")}`);
       }
 
-      // 6. 按 api_key_name 聚合，type 区分维度
-      const keyMap = {};
+      // 6. 先按 (api_key_name, model) 二元组聚合，确保模型级数据精确
+      const detailMap = {};
       for (const row of rows) {
         const keyName = String(row[colName] || "unknown");
         const type = colType >= 0 ? String(row[colType] || "") : "";
         const amount = colAmount >= 0 ? Number(row[colAmount]) || 0 : 0;
         const price = colPrice >= 0 ? Number(row[colPrice]) || 0 : 0;
-        const modelName = colModel >= 0 ? String(row[colModel] || "unknown") : "";
+        const modelName = colModel >= 0 ? String(row[colModel] || "") : "";
+        if (!modelName) continue;
+        const pairKey = keyName + "|||" + modelName;
 
-        if (!keyMap[keyName]) {
-          keyMap[keyName] = {
-            key: keyName,
+        if (!detailMap[pairKey]) {
+          detailMap[pairKey] = {
+            key: keyName, model: modelName,
             requestCount: 0,
-            inputMissTokens: 0,
-            inputHitTokens: 0,
-            outputTokens: 0,
-            inputMissCost: 0,
-            inputHitCost: 0,
-            outputCost: 0,
+            inputMissTokens: 0, inputHitTokens: 0, outputTokens: 0,
+            inputMissCost: 0, inputHitCost: 0, outputCost: 0,
             totalCost: 0,
-            byModel: {},
           };
         }
-        const entry = keyMap[keyName];
-
-        // 根据 type 分别累计
+        const entry = detailMap[pairKey];
         const cost = price * amount;
         if (type === "input_cache_hit_tokens" || type === "prompt_cache_hit_token" || type === "inputCacheHit") {
-          entry.inputHitTokens += amount;
-          entry.inputHitCost += cost;
+          entry.inputHitTokens += amount; entry.inputHitCost += cost;
         } else if (type === "input_cache_miss_tokens" || type === "prompt_cache_miss_token" || type === "inputCacheMiss") {
-          entry.inputMissTokens += amount;
-          entry.inputMissCost += cost;
+          entry.inputMissTokens += amount; entry.inputMissCost += cost;
         } else if (type === "output_tokens" || type === "completion_token" || type === "output") {
-          entry.outputTokens += amount;
-          entry.outputCost += cost;
+          entry.outputTokens += amount; entry.outputCost += cost;
         } else if (type === "request_count" || type === "calls" || type === "requests") {
           entry.requestCount += amount;
         }
         entry.totalCost += cost;
+      }
 
-        // 按模型细分（用于调试）
-        if (modelName) {
-          if (!entry.byModel[modelName]) entry.byModel[modelName] = { missTokens: 0, hitTokens: 0, outTokens: 0 };
-          if (type.includes("miss")) entry.byModel[modelName].missTokens += amount;
-          else if (type.includes("hit")) entry.byModel[modelName].hitTokens += amount;
-          else if (type.includes("output")) entry.byModel[modelName].outTokens += amount;
+      // 7. 从模型级数据汇总到 Key 级
+      const keyMap = {};
+      for (const item of Object.values(detailMap)) {
+        if (!keyMap[item.key]) {
+          keyMap[item.key] = {
+            key: item.key,
+            requestCount: 0,
+            inputMissTokens: 0, inputHitTokens: 0, outputTokens: 0,
+            inputMissCost: 0, inputHitCost: 0, outputCost: 0,
+            totalCost: 0,
+            byModel: {},
+          };
         }
+        const k = keyMap[item.key];
+        k.requestCount += item.requestCount;
+        k.inputMissTokens += item.inputMissTokens;
+        k.inputHitTokens += item.inputHitTokens;
+        k.outputTokens += item.outputTokens;
+        k.inputMissCost += item.inputMissCost;
+        k.inputHitCost += item.inputHitCost;
+        k.outputCost += item.outputCost;
+        k.totalCost += item.totalCost;
+        k.byModel[item.model] = {
+          model: item.model,
+          requestCount: item.requestCount,
+          missTokens: item.inputMissTokens,
+          hitTokens: item.inputHitTokens,
+          outTokens: item.outputTokens,
+          missCost: item.inputMissCost,
+          hitCost: item.inputHitCost,
+          outCost: item.outputCost,
+          totalCost: item.totalCost,
+        };
       }
 
       const sorted = Object.values(keyMap).sort((a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount);
@@ -2479,7 +2612,9 @@
       } else if (state.keyDetailError) {
         meta.textContent = "导入失败";
       } else if (state.keyDetailData && state.keyDetailData.length) {
-        meta.textContent = `${state.keyDetailData.length} 个活跃 Key`;
+        const activeData = getKeyDetailData();
+        const itemCount = state.groupByModel ? countModels() : activeData.length;
+        meta.textContent = state.groupByModel ? `${itemCount} 个活跃模型` : `${itemCount} 个活跃 Key`;
       } else {
         meta.textContent = "暂无 Key 用量";
       }
@@ -2509,7 +2644,7 @@
       const existingMsg = keySection.querySelector(".dsapi-plus-key-loading");
       if (existingMsg) existingMsg.remove();
       const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
-      const newHTML = renderKeyTableForExport(state.keyDetailData, state.keyUnitPrices, state.keyTableVisible);
+      const newHTML = renderKeyTableForExport(getKeyDetailData(), state.keyUnitPrices, state.keyTableVisible, state.groupByModel);
       if (tableWrap) {
         tableWrap.outerHTML = newHTML;
       } else {
@@ -2540,12 +2675,17 @@
     }
     // 更新 heading 值
     const heading = keySection.querySelector(".dsapi-plus-chart-heading-value");
-    if (heading && state.keyDetailData) {
-      heading.textContent = `${state.keyDetailData.length} 个活跃 Key`;
+    if (heading) {
+      const activeData = getKeyDetailData();
+      const itemCount = state.groupByModel ? countModels() : (activeData ? activeData.length : 0);
+      heading.textContent = activeData && activeData.length
+        ? `${itemCount} ${state.groupByModel ? '个活跃模型' : '个活跃 Key'}`
+        : "暂无数据";
     }
     // 同步图表容器高度：每横条 = 表格行高 36px + grid上下边距 40px
-    const chartHeight = state.keyDetailData && state.keyDetailData.length
-      ? Math.max(100, state.keyDetailData.length * 36 + 40)
+    const activeData = getKeyDetailData();
+    const chartHeight = activeData && activeData.length
+      ? Math.max(100, activeData.length * 36 + 40)
       : 160;
     frame.style.height = chartHeight + "px";
     container.style.height = chartHeight + "px";
@@ -2646,6 +2786,9 @@
         state.keyTableVisible = !state.keyTableVisible;
         toggleBtn.textContent = state.keyTableVisible ? "隐藏表格详情" : "显示表格详情";
         saveKeyTableVisible();
+        // 同步按模型统计按钮的显示
+        const groupModelBtn = panel.querySelector(".dsapi-plus-group-model-btn");
+        if (groupModelBtn) groupModelBtn.style.display = state.keyTableVisible ? "" : "none";
         const keySection = panel.querySelector(".dsapi-plus-section:last-child");
         if (!keySection) return;
         const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
@@ -2653,6 +2796,33 @@
           tableWrap.style.display = state.keyTableVisible ? "" : "none";
         }
         // 表格显示状态变化后调整图表尺寸
+        for (const { instance } of state.charts) instance?.resize();
+      });
+    }
+
+    // 按模型/Key 统计切换
+    const groupModelBtn = panel.querySelector(".dsapi-plus-group-model-btn");
+    if (groupModelBtn) {
+      groupModelBtn.addEventListener("click", () => {
+        state.groupByModel = !state.groupByModel;
+        groupModelBtn.textContent = state.groupByModel ? "按Key统计" : "按模型统计";
+        saveGroupByModel();
+        // 重新渲染表格和图表
+        const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+        if (keySection) {
+          const activeData = getKeyDetailData();
+          const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
+          if (tableWrap && activeData && activeData.length) {
+            tableWrap.outerHTML = renderKeyTableForExport(activeData, state.keyUnitPrices, state.keyTableVisible, state.groupByModel);
+          }
+          // 更新 meta
+          const meta = keySection.querySelector(".dsapi-plus-section-meta");
+          if (meta && activeData) {
+            const itemCount = state.groupByModel ? countModels() : activeData.length;
+            meta.textContent = state.groupByModel ? `${itemCount} 个活跃模型` : `${itemCount} 个活跃 Key`;
+          }
+          initOrUpdateKeyCostChart(keySection);
+        }
         for (const { instance } of state.charts) instance?.resize();
       });
     }
@@ -2688,6 +2858,23 @@
         nativeBtn.textContent = state.nativeContentVisible ? "隐藏原生内容" : "显示原生内容";
         saveNativeContentVisible();
         toggleNativeContent(state.nativeContentVisible);
+      });
+    }
+
+    // 月份下拉选择
+    const periodSelect = panel.querySelector(".dsapi-plus-period-select");
+    if (periodSelect) {
+      periodSelect.addEventListener("change", () => {
+        state.selectedPeriod = periodSelect.value;
+        // 清除旧的 Key 明细数据
+        state.keyDetailData = null;
+        state.keyDetailError = "";
+        state.keyDetailUpdateTime = "";
+        localStorage.removeItem("dsapi_plus_key_detail");
+        refresh(true);
+        // 自动刷新 Key 明细
+        const controller = new AbortController();
+        fetchKeyDetailFromExport(periodSelect.value, controller.signal);
       });
     }
     // 初始化时应用原生内容显示状态
