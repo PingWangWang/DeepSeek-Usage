@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.29
+// @version      1.9.32
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -69,6 +69,10 @@
 
     // 按模型分组开关
     groupByModel: loadGroupByModel(),
+
+    // 自动刷新
+    autoRefreshInterval: loadAutoRefreshInterval(),
+    autoRefreshTimer: 0,       // setInterval 句柄
   };
 
   function loadSectionVisible() {
@@ -144,6 +148,57 @@
     try {
       localStorage.setItem("dsapi_plus_group_by_model", String(state.groupByModel));
     } catch (e) { /* ignore */ }
+  }
+
+  const AUTO_REFRESH_INTERVALS = [
+    { label: "关", value: 0 },
+    { label: "30秒", value: 30000 },
+    { label: "5分钟", value: 300000 },
+    { label: "10分钟", value: 600000 },
+    { label: "30分钟", value: 1800000 },
+    { label: "1小时", value: 3600000 },
+  ];
+
+  function loadAutoRefreshInterval() {
+    try {
+      const v = parseInt(localStorage.getItem("dsapi_plus_auto_refresh"), 10);
+      if (AUTO_REFRESH_INTERVALS.some((i) => i.value === v)) return v;
+    } catch (e) { /* ignore */ }
+    return 0; // 默认关闭
+  }
+
+  function saveAutoRefreshInterval() {
+    try {
+      localStorage.setItem("dsapi_plus_auto_refresh", String(state.autoRefreshInterval));
+    } catch (e) { /* ignore */ }
+  }
+
+  function applyAutoRefresh() {
+    if (state.autoRefreshTimer) {
+      clearInterval(state.autoRefreshTimer);
+      state.autoRefreshTimer = 0;
+    }
+    if (state.autoRefreshInterval > 0) {
+      state.autoRefreshTimer = setInterval(() => {
+        refresh(true);
+        // 同时刷新 Key 明细数据（如果已导入过）
+        if (state.keyDetailData && state.keyDetailData.length) {
+          const period = getSelectedPeriod();
+          const controller = new AbortController();
+          fetchKeyDetailFromExport(period, controller.signal);
+        }
+      }, state.autoRefreshInterval);
+    }
+  }
+
+  function getAutoRefreshLabel(interval) {
+    const found = AUTO_REFRESH_INTERVALS.find((i) => i.value === interval);
+    return found ? found.label : "关";
+  }
+
+  function nextAutoRefreshInterval(current) {
+    const idx = AUTO_REFRESH_INTERVALS.findIndex((i) => i.value === current);
+    return AUTO_REFRESH_INTERVALS[(idx + 1) % AUTO_REFRESH_INTERVALS.length].value;
   }
 
   function isUsagePage() {
@@ -301,6 +356,45 @@
         color: var(--dsapi-plus-text);
         border-style: solid;
       }
+      .dsapi-plus-toggle-native-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+        border-style: solid;
+      }
+      .dsapi-plus-group-model-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .dsapi-plus-auto-refresh-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-auto-refresh-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-auto-refresh-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+      }
       .dsapi-plus-toggle-key-btn {
         background: transparent;
         border: 1px solid var(--dsapi-plus-muted);
@@ -317,6 +411,12 @@
       }
       .dsapi-plus-toggle-key-btn:hover {
         opacity: 1;
+      }
+      .dsapi-plus-toggle-key-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
       }
       .dsapi-plus-toggle-chart-btn {
         background: none;
@@ -533,6 +633,32 @@
         background: rgba(255, 255, 255, 0.08);
         color: var(--dsapi-plus-text);
         border-style: solid;
+      }
+      body.dark .dsapi-plus-toggle-native-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
+      }
+      body.dark .dsapi-plus-toggle-key-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
+      }
+      body.dark .dsapi-plus-group-model-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
+        color: var(--dsapi-plus-text);
+        border-color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-auto-refresh-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-auto-refresh-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
       }
       body.dark .dsapi-plus-period-select {
         border-color: rgba(255, 255, 255, 0.3);
@@ -1345,7 +1471,8 @@
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存</button>
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.composition ? ' active' : ''}" data-section="composition">Token构成</button>
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型</button>
-          <button type="button" class="dsapi-plus-toggle-native-btn" style="margin-left:4px;">${state.nativeContentVisible ? '隐藏原生内容' : '显示原生内容'}</button>
+          <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;">自动刷新 ${getAutoRefreshLabel(state.autoRefreshInterval)}</button>
+          <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">${state.nativeContentVisible ? '隐藏原生内容' : '显示原生内容'}</button>
           <button type="button" class="dsapi-plus-refresh">刷新</button>
         </div>
       </div>
@@ -1416,8 +1543,8 @@
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
-              <button type="button" class="dsapi-plus-group-model-btn" style="font-size:11px;background:transparent;border:1px solid var(--dsapi-plus-muted);color:var(--dsapi-plus-muted);padding:4px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;opacity:0.7;">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
-              <button type="button" class="dsapi-plus-toggle-key-btn">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
+              <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}" style="font-size:11px;background:transparent;border:1px solid var(--dsapi-plus-muted);color:var(--dsapi-plus-muted);padding:4px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;opacity:0.7;">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
+              <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
               <button type="button" class="dsapi-plus-refresh dsapi-plus-key-btn">刷新Key明细</button>
             </div>
           </div>
@@ -2824,6 +2951,7 @@
       toggleBtn.addEventListener("click", () => {
         state.keyTableVisible = !state.keyTableVisible;
         toggleBtn.textContent = state.keyTableVisible ? "隐藏表格详情" : "显示表格详情";
+        toggleBtn.classList.toggle("active", state.keyTableVisible);
         saveKeyTableVisible();
         const keySection = panel.querySelector(".dsapi-plus-section:last-child");
         if (!keySection) return;
@@ -2842,6 +2970,7 @@
       groupModelBtn.addEventListener("click", () => {
         state.groupByModel = !state.groupByModel;
         groupModelBtn.textContent = state.groupByModel ? "按Key统计" : "按模型统计";
+        groupModelBtn.classList.toggle("active", state.groupByModel);
         saveGroupByModel();
         // 重新渲染表格和图表
         const keySection = panel.querySelector(".dsapi-plus-section:last-child");
@@ -2892,9 +3021,27 @@
       nativeBtn.addEventListener("click", () => {
         state.nativeContentVisible = !state.nativeContentVisible;
         nativeBtn.textContent = state.nativeContentVisible ? "隐藏原生内容" : "显示原生内容";
+        nativeBtn.classList.toggle("active", state.nativeContentVisible);
         saveNativeContentVisible();
         toggleNativeContent(state.nativeContentVisible);
       });
+    }
+
+    // 自动刷新切换
+    const autoRefreshBtn = panel.querySelector(".dsapi-plus-auto-refresh-btn");
+    if (autoRefreshBtn) {
+      autoRefreshBtn.addEventListener("click", () => {
+        state.autoRefreshInterval = nextAutoRefreshInterval(state.autoRefreshInterval);
+        saveAutoRefreshInterval();
+        applyAutoRefresh();
+        autoRefreshBtn.textContent = `自动刷新 ${getAutoRefreshLabel(state.autoRefreshInterval)}`;
+        autoRefreshBtn.classList.toggle("active", state.autoRefreshInterval > 0);
+      });
+      // 初始化时应用保存的自动刷新状态
+      if (state.autoRefreshInterval > 0) {
+        autoRefreshBtn.classList.add("active");
+        applyAutoRefresh();
+      }
     }
 
     // 月份下拉选择
@@ -3231,6 +3378,10 @@
     window.clearTimeout(state.refreshTimer);
     window.clearTimeout(state.mutationTimer);
     window.clearTimeout(state.routeTimer);
+    if (state.autoRefreshTimer) {
+      clearInterval(state.autoRefreshTimer);
+      state.autoRefreshTimer = 0;
+    }
     state.abortController?.abort();
     state.abortController = null;
     if (state.observer) {
