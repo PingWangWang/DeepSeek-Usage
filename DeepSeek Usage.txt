@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.26
+// @version      1.9.28
 // @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入）等，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
@@ -1415,7 +1415,7 @@
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
-              <button type="button" class="dsapi-plus-group-model-btn" style="display:${state.keyTableVisible ? '' : 'none'};font-size:11px;background:transparent;border:1px solid var(--dsapi-plus-muted);color:var(--dsapi-plus-muted);padding:4px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;opacity:0.7;">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
+              <button type="button" class="dsapi-plus-group-model-btn" style="font-size:11px;background:transparent;border:1px solid var(--dsapi-plus-muted);color:var(--dsapi-plus-muted);padding:4px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;opacity:0.7;">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
               <button type="button" class="dsapi-plus-toggle-key-btn">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
               <button type="button" class="dsapi-plus-refresh dsapi-plus-key-btn">刷新Key明细</button>
             </div>
@@ -2118,15 +2118,53 @@
     return models.size;
   }
 
+  function countModelItems() {
+    if (!state.keyDetailData) return 0;
+    let count = 0;
+    for (const item of state.keyDetailData) {
+      if (item.byModel) {
+        for (const name of Object.keys(item.byModel)) {
+          if (name && name !== "unknown") count++;
+        }
+      }
+    }
+    return count;
+  }
+
   function buildKeyCostChartOption() {
-    const data = state.keyDetailData;
+    // 根据 groupByModel 决定使用 Key 级还是模型级数据
+    let data = state.keyDetailData;
     if (!data || !data.length) return null;
+    if (state.groupByModel) {
+      // 展平为 (key, model) 二元组，每个条目显示为 "key - model"
+      const flat = [];
+      for (const item of data) {
+        if (!item.byModel) continue;
+        const models = Object.entries(item.byModel)
+          .filter(([name]) => name && name !== "unknown")
+          .sort((a, b) => (b[1].totalCost || 0) - (a[1].totalCost || 0));
+        for (const [name, m] of models) {
+          flat.push({
+            key: `${item.key} - ${name}`,
+            requestCount: m.requestCount || 0,
+            inputMissTokens: m.missTokens || 0,
+            inputHitTokens: m.hitTokens || 0,
+            outputTokens: m.outTokens || 0,
+            inputMissCost: m.missCost || 0,
+            inputHitCost: m.hitCost || 0,
+            outputCost: m.outCost || 0,
+            totalCost: m.totalCost || 0,
+          });
+        }
+      }
+      data = flat;
+    }
     const textColor = getChartTextColor();
     const gridColor = getChartGridColor();
     const names = data.map((k) => k.key);
     return {
       animation: false,
-      grid: { left: 72, right: 90, top: 12, bottom: 28 },
+      grid: { left: state.groupByModel ? 130 : 72, right: 90, top: 12, bottom: 28 },
       tooltip: {
         confine: true,
         trigger: "axis",
@@ -2157,7 +2195,7 @@
         data: names,
         axisTick: { show: false },
         axisLine: { show: false },
-        axisLabel: { color: textColor, width: 72, overflow: "truncate" },
+        axisLabel: { color: textColor, width: state.groupByModel ? 120 : 72, overflow: "truncate" },
       },
       series: [
         {
@@ -2676,16 +2714,15 @@
     // 更新 heading 值
     const heading = keySection.querySelector(".dsapi-plus-chart-heading-value");
     if (heading) {
-      const activeData = getKeyDetailData();
-      const itemCount = state.groupByModel ? countModels() : (activeData ? activeData.length : 0);
-      heading.textContent = activeData && activeData.length
-        ? `${itemCount} ${state.groupByModel ? '个活跃模型' : '个活跃 Key'}`
+      const itemCount = state.groupByModel ? countModelItems() : (state.keyDetailData ? state.keyDetailData.length : 0);
+      heading.textContent = itemCount > 0
+        ? `${itemCount} ${state.groupByModel ? '个明细' : '个活跃 Key'}`
         : "暂无数据";
     }
     // 同步图表容器高度：每横条 = 表格行高 36px + grid上下边距 40px
-    const activeData = getKeyDetailData();
-    const chartHeight = activeData && activeData.length
-      ? Math.max(100, activeData.length * 36 + 40)
+    const itemCount = state.groupByModel ? countModelItems() : (state.keyDetailData ? state.keyDetailData.length : 0);
+    const chartHeight = itemCount > 0
+      ? Math.max(100, itemCount * 36 + 40)
       : 160;
     frame.style.height = chartHeight + "px";
     container.style.height = chartHeight + "px";
@@ -2786,9 +2823,6 @@
         state.keyTableVisible = !state.keyTableVisible;
         toggleBtn.textContent = state.keyTableVisible ? "隐藏表格详情" : "显示表格详情";
         saveKeyTableVisible();
-        // 同步按模型统计按钮的显示
-        const groupModelBtn = panel.querySelector(".dsapi-plus-group-model-btn");
-        if (groupModelBtn) groupModelBtn.style.display = state.keyTableVisible ? "" : "none";
         const keySection = panel.querySelector(".dsapi-plus-section:last-child");
         if (!keySection) return;
         const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
