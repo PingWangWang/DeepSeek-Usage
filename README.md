@@ -2,7 +2,7 @@
 
 > 本项目基于 [DeepSeek Usage+](https://greasyfork.org/zh-CN/scripts/578066-deepseek-usage-%E5%AE%98%E6%96%B9api%E7%94%A8%E9%87%8F%E9%A1%B5%E5%A2%9E%E5%BC%BA%E4%BB%AA%E8%A1%A8%E7%9B%98) 修改扩展，为 DeepSeek API 用量页（platform.deepseek.com/usage）注入完整的数据分析仪表盘，并可在对话页快速跳转。
 
-[![Version](https://img.shields.io/badge/version-1.9.50-blue)]()
+[![Version](https://img.shields.io/badge/version-1.9.51-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-supported-orange)]()
 
@@ -17,7 +17,6 @@
 - **原生内容开关**：可隐藏页面原有内容，仅显示扩展面板
 - **中文开发者优化**：万位分割（中文数字习惯）、CNY 金额格式化、全中文标签
 - **自动主题适配**：跟随 DeepSeek 页面明/暗模式自动切换图表配色
-- **对话页快捷入口**：在 chat.deepseek.com 左上角工具栏注入快速跳转按钮
 
 ## 📦 安装
 
@@ -108,7 +107,7 @@
 | History API 拦截 | 感知 SPA 路由变化 |
 
 ### 脚本运行机制
-1. 通过 `@match` 匹配 `platform.deepseek.com/*` 和 `chat.deepseek.com/*`
+1. 通过 `@match` 匹配 `platform.deepseek.com/*`
 2. 自动从 `localStorage` / `sessionStorage` 中提取登录 Token
 3. 调用 `usage/amount`、`usage/cost`、`users/get_user_summary` 三个 API 获取数据
 4. 智能适配 API 响应格式（`biz_data` 解包、字段名自动匹配）

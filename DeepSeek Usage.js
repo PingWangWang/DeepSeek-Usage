@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         DeepSeek Usage+ — 用量页增强仪表盘
-// @namespace    https://platform.deepseek.com/
+// @name         DeepSeek Usage — DeepSeek用量页增强
+// @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.9.51
-// @description  DeepSeek 用量页只展示了基础数字和简表。本项目基于 DeepSeek Usage+ 修改，在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入、按模型统计、Key筛选、每日费用曲线）、月份选择、自动刷新、手机端适配等功能，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
+// @version      1.9.53
+// @description  DeepSeek 用量页只展示了基础数字和简表。本项目基于 DeepSeek Usage+ 修改，在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入、按模型统计、Key筛选、每日费用曲线）、月份选择、自动刷新、手机端适配等功能。
 // @author       PingWangWang
+// @icon         https://www.deepseek.com/favicon.ico
 // @match        https://platform.deepseek.com/*
 // @match        https://chat.deepseek.com/*
 // @run-at       document-idle
@@ -19,8 +20,6 @@
 
   const PANEL_ID = "dsapi-plus-panel";
   const STYLE_ID = "dsapi-plus-style";
-  const CHAT_USAGE_BUTTON_ID = "dsapi-plus-chat-usage-button";
-  const CHAT_STYLE_ID = "dsapi-plus-chat-style";
   const USAGE_PAGE_URL = "https://platform.deepseek.com/usage";
   const TOKEN_TYPES = {
     request: "REQUEST",
@@ -49,9 +48,6 @@
     tooltipKeeperPoint: null,
     pendingThemeUpdate: false,
     pendingPanelData: null,
-    chatBooted: false,
-    chatObserver: null,
-    chatTimer: 0,
     // Key 明细数据（从导出接口获取）
     keyDetailData: null,       // 按 key 聚合后的数据
     keyDetailLoading: false,   // 正在加载中
@@ -266,10 +262,6 @@
 
   function isUsagePage() {
     return location.pathname === "/usage" || location.pathname.startsWith("/usage/");
-  }
-
-  function isChatPage() {
-    return location.hostname === "chat.deepseek.com";
   }
 
   function injectStyles() {
@@ -3595,214 +3587,6 @@
     }
     // 初始化时应用原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
-
-  }
-
-  function injectChatStyles() {
-    if (document.getElementById(CHAT_STYLE_ID)) return;
-
-    const style = document.createElement("style");
-    style.id = CHAT_STYLE_ID;
-    style.textContent = `
-      #${CHAT_USAGE_BUTTON_ID} {
-        box-sizing: border-box;
-        width: 34px !important;
-        min-width: 34px !important;
-        max-width: 34px !important;
-        height: 34px !important;
-        min-height: 34px !important;
-        max-height: 34px !important;
-        flex: 0 0 34px !important;
-        position: relative !important;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 0;
-        border-radius: 9999px;
-        background: transparent;
-        color: inherit;
-        cursor: pointer;
-        user-select: none;
-      }
-      #${CHAT_USAGE_BUTTON_ID} .ds-button__background {
-        position: absolute !important;
-        inset: 0 !important;
-        left: 0 !important;
-        top: 0 !important;
-        right: auto !important;
-        bottom: auto !important;
-        width: 100% !important;
-        height: 100% !important;
-        border-radius: 9999px !important;
-        transform: none !important;
-        transform-origin: center center !important;
-      }
-      #${CHAT_USAGE_BUTTON_ID}:hover .ds-button__background {
-        background: rgba(2, 14, 54, 0.06);
-      }
-      body.dark #${CHAT_USAGE_BUTTON_ID}:hover .ds-button__background {
-        background: rgba(255, 255, 255, 0.08);
-      }
-      #${CHAT_USAGE_BUTTON_ID}:focus-visible {
-        outline: 2px solid rgba(57, 100, 254, 0.7);
-        outline-offset: 2px;
-      }
-      #${CHAT_USAGE_BUTTON_ID} .ds-button__icon,
-      #${CHAT_USAGE_BUTTON_ID} .ds-icon {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      #${CHAT_USAGE_BUTTON_ID} svg {
-        width: 16px;
-        height: 16px;
-        display: block;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function createChatUsageButton() {
-    const button = document.createElement("div");
-    button.id = CHAT_USAGE_BUTTON_ID;
-    button.className = "ds-button ds-button--iconLabelPrimary ds-button--icon ds-button--capsule ds-button--m ds-button--icon-relative-m _4f3769f";
-    button.setAttribute("role", "button");
-    button.setAttribute("tabindex", "0");
-    button.setAttribute("aria-label", "API用量");
-    button.style.setProperty("--dsl-button-height", "34px");
-    button.innerHTML = `
-      <div class="ds-button__background"></div>
-      <div class="ds-button__icon ds-button__icon--last-child">
-        <div class="ds-icon" style="font-size: inherit;">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M2.4 13.85C2.041 13.85 1.75 13.559 1.75 13.2V2.8C1.75 2.441 2.041 2.15 2.4 2.15C2.759 2.15 3.05 2.441 3.05 2.8V12.55H13.6C13.959 12.55 14.25 12.841 14.25 13.2C14.25 13.559 13.959 13.85 13.6 13.85H2.4Z" fill="currentColor"></path>
-            <path d="M5.15 10.85C4.791 10.85 4.5 10.559 4.5 10.2V7.3C4.5 6.941 4.791 6.65 5.15 6.65C5.509 6.65 5.8 6.941 5.8 7.3V10.2C5.8 10.559 5.509 10.85 5.15 10.85Z" fill="currentColor"></path>
-            <path d="M8 10.85C7.641 10.85 7.35 10.559 7.35 10.2V4.85C7.35 4.491 7.641 4.2 8 4.2C8.359 4.2 8.65 4.491 8.65 4.85V10.2C8.65 10.559 8.359 10.85 8 10.85Z" fill="currentColor"></path>
-            <path d="M10.85 10.85C10.491 10.85 10.2 10.559 10.2 10.2V6.05C10.2 5.691 10.491 5.4 10.85 5.4C11.209 5.4 11.5 5.691 11.5 6.05V10.2C11.5 10.559 11.209 10.85 10.85 10.85Z" fill="currentColor"></path>
-          </svg>
-        </div>
-      </div>
-    `;
-    button.addEventListener("click", openUsagePage);
-    button.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      openUsagePage();
-    });
-    return button;
-  }
-
-  function openUsagePage() {
-    window.open(USAGE_PAGE_URL, "_blank", "noopener,noreferrer");
-  }
-
-  function isVisibleElement(element) {
-    if (!(element instanceof HTMLElement)) return false;
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  function getToolbarButtons(toolbar) {
-    return Array.from(toolbar.children).filter((child) => (
-      child instanceof HTMLElement &&
-      child.id !== CHAT_USAGE_BUTTON_ID &&
-      child.matches('[role="button"].ds-button')
-    ));
-  }
-
-  function findChatToolbar() {
-    const knownToolbar = document.querySelector("#root .e5bf614e");
-    if (knownToolbar instanceof HTMLElement && getToolbarButtons(knownToolbar).length >= 3) {
-      return knownToolbar;
-    }
-
-    const buttons = Array.from(document.querySelectorAll('#root [role="button"].ds-button'));
-    const candidates = [];
-    const seenParents = new Set();
-    for (const button of buttons) {
-      const parent = button.parentElement;
-      if (!parent || seenParents.has(parent)) continue;
-      seenParents.add(parent);
-
-      const siblingButtons = getToolbarButtons(parent);
-      if (siblingButtons.length < 3 || !siblingButtons.slice(0, 3).every(isVisibleElement)) continue;
-
-      const rect = parent.getBoundingClientRect();
-      const isTopLeft = rect.top >= -10 &&
-        rect.top < Math.min(140, window.innerHeight * 0.25) &&
-        rect.left < Math.min(360, window.innerWidth * 0.45);
-      const firstThreeAreIconButtons = siblingButtons.slice(0, 3).every((item) => (
-        item.querySelector(".ds-button__icon") && !(item.textContent || "").trim()
-      ));
-
-      if (isTopLeft && firstThreeAreIconButtons) {
-        candidates.push({ element: parent, top: rect.top, left: rect.left });
-      }
-    }
-
-    candidates.sort((a, b) => (a.top - b.top) || (a.left - b.left));
-    return candidates[0]?.element || null;
-  }
-
-  function ensureChatUsageButton() {
-    if (!isChatPage()) return null;
-    injectChatStyles();
-
-    const toolbar = findChatToolbar();
-    if (!toolbar) return null;
-
-    let button = document.getElementById(CHAT_USAGE_BUTTON_ID);
-    if (!button) button = createChatUsageButton();
-
-    const toolbarButtons = getToolbarButtons(toolbar);
-    const newChatButton = toolbarButtons[2];
-    if (!button.isConnected) {
-      if (newChatButton) {
-        newChatButton.after(button);
-      } else {
-        toolbar.appendChild(button);
-      }
-    } else if (button.parentElement !== toolbar) {
-      if (newChatButton) {
-        newChatButton.after(button);
-      } else {
-        toolbar.appendChild(button);
-      }
-    } else if (newChatButton && button.previousElementSibling !== newChatButton) {
-      newChatButton.after(button);
-    }
-
-    return button;
-  }
-
-  function scheduleChatUsageButton() {
-    window.clearTimeout(state.chatTimer);
-    state.chatTimer = window.setTimeout(ensureChatUsageButton, 120);
-  }
-
-  function bootChatButton() {
-    if (state.chatBooted) {
-      scheduleChatUsageButton();
-      return;
-    }
-
-    state.chatBooted = true;
-    ensureChatUsageButton();
-    state.chatObserver = new MutationObserver(scheduleChatUsageButton);
-    state.chatObserver.observe(document.body, { childList: true, subtree: true });
-  }
-
-  function teardownChatButton() {
-    window.clearTimeout(state.chatTimer);
-    if (state.chatObserver) {
-      state.chatObserver.disconnect();
-      state.chatObserver = null;
-    }
-    const button = document.getElementById(CHAT_USAGE_BUTTON_ID);
-    if (button) button.remove();
-    state.chatBooted = false;
   }
 
   function ensurePanel() {
@@ -3969,12 +3753,6 @@
       bootUsage();
     } else if (state.booted) {
       teardownUsage();
-    }
-
-    if (isChatPage()) {
-      bootChatButton();
-    } else if (state.chatBooted) {
-      teardownChatButton();
     }
   }
 
