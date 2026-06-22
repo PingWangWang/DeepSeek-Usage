@@ -7,7 +7,6 @@
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
 // @match        https://platform.deepseek.com/*
-// @match        https://chat.deepseek.com/*
 // @run-at       document-idle
 // @grant        none
 // @require      https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
