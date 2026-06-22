@@ -3,7 +3,7 @@
 // @namespace    https://platform.deepseek.com/
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
 // @version      1.9.50
-// @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入、按模型统计、Key筛选、每日费用曲线）、月份选择、自动刷新、手机端适配等功能，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
+// @description  DeepSeek 用量页只展示了基础数字和简表。本项目基于 DeepSeek Usage+ 修改，在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入、按模型统计、Key筛选、每日费用曲线）、月份选择、自动刷新、手机端适配等功能，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       PingWangWang
 // @match        https://platform.deepseek.com/*
 // @match        https://chat.deepseek.com/*
