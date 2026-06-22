@@ -2,7 +2,7 @@
 
 > 为 DeepSeek API 用量页（platform.deepseek.com/usage）注入完整的数据分析仪表盘，并可在对话页快速跳转。
 
-[![Version](https://img.shields.io/badge/version-1.9.35-blue)]()
+[![Version](https://img.shields.io/badge/version-1.9.48-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-supported-orange)]()
 
@@ -79,6 +79,7 @@
 | 显示原生内容 | 切换 DeepSeek 页面原有内容的显示/隐藏 |
 | 自动刷新 | 点击循环切换：关→30秒→5分钟→10分钟→30分钟→1小时，启用时绿色高亮 |
 | 刷新 | 手动刷新全部数据（用量 + Key 明细） |
+| Key 筛选 | 在 Key 明细区域，支持多选筛选 Key，支持全选/全取消，状态持久化 |
 
 ### Key 明细（高级功能）
 - 点击 **刷新** 按钮自动调用 DeepSeek 导出接口下载月度 ZIP
@@ -86,6 +87,7 @@
 - 支持缓存命中/未命中的费用拆分
 - 表格可折叠，图表高度自动适配
 - **按模型统计**：开启后表格展示各 Key 下按模型细分的子行，图表切换为模型级堆叠条形图
+- **Key 筛选**：支持多选/全选/全取消筛选 Key，展示数据、费用分布图和每日曲线图同步过滤
 - 数据自动记忆（localStorage），切换页面后自动恢复
 
 ### 对话页快捷入口

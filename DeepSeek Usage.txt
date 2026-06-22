@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek Usage+ — 用量页增强仪表盘
 // @namespace    https://platform.deepseek.com/
-// @version      1.9.45
-// @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入、按模型统计）、月份选择、自动刷新等功能，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
+// @version      1.9.49
+// @description  DeepSeek 用量页只展示了基础数字和简表。本脚本在其基础上扩展为完整的数据分析仪表盘，包含费用细分、Token 构成、交互图表、缓存命中率、Key 明细（支持从导出ZIP导入、按模型统计、Key筛选、每日费用曲线）、月份选择、自动刷新（1分钟~30分钟，支持记忆）等功能，并在 DeepSeek 对话页左上角补上直达入口，方便一键跳转到API用量页。
 // @author       miaoa88
 // @match        https://platform.deepseek.com/*
 // @match        https://chat.deepseek.com/*
@@ -73,6 +73,9 @@
     // 自动刷新
     autoRefreshInterval: loadAutoRefreshInterval(),
     autoRefreshTimer: 0,       // setInterval 句柄
+
+    // Key 筛选
+    keyFilter: loadKeyFilter(),  // { mode: "all", keys: [...] } 或 null
 
     // 每日详情
     keyDetailDailyVisible: loadKeyDetailDailyVisible(),
@@ -170,17 +173,25 @@
 
   const AUTO_REFRESH_INTERVALS = [
     { label: "关", value: 0 },
-    { label: "30秒", value: 30000 },
+    { label: "1分钟", value: 60000 },
     { label: "5分钟", value: 300000 },
     { label: "10分钟", value: 600000 },
     { label: "30分钟", value: 1800000 },
-    { label: "1小时", value: 3600000 },
   ];
 
   function loadAutoRefreshInterval() {
     try {
       const v = parseInt(localStorage.getItem("dsapi_plus_auto_refresh"), 10);
-      if (AUTO_REFRESH_INTERVALS.some((i) => i.value === v)) return v;
+      if (v > 0) {
+        // 兼容旧数据：匹配最近的可用间隔（如旧版 30秒 → 1分钟）
+        const match = AUTO_REFRESH_INTERVALS.find((i) => i.value === v);
+        if (match) return match.value;
+        // 没有精确匹配时取最接近的（向最近的有效值靠拢）
+        const sorted = AUTO_REFRESH_INTERVALS.filter((i) => i.value > 0).sort((a, b) => a.value - b.value);
+        const nearest = sorted.reduce((a, b) => Math.abs(b.value - v) < Math.abs(a.value - v) ? b : a);
+        return nearest.value;
+      }
+      return 0;
     } catch (e) { /* ignore */ }
     return 0; // 默认关闭
   }
@@ -189,6 +200,39 @@
     try {
       localStorage.setItem("dsapi_plus_auto_refresh", String(state.autoRefreshInterval));
     } catch (e) { /* ignore */ }
+  }
+
+  function loadKeyFilter() {
+    try {
+      const saved = localStorage.getItem("dsapi_plus_key_filter");
+      if (saved) return JSON.parse(saved);
+    } catch (e) { /* ignore */ }
+    return { mode: "all", keys: [] };
+  }
+
+  function saveKeyFilter() {
+    try {
+      localStorage.setItem("dsapi_plus_key_filter", JSON.stringify(state.keyFilter));
+    } catch (e) { /* ignore */ }
+  }
+
+  function getFilteredKeyData() {
+    const data = state.keyDetailData;
+    if (!data || !data.length) return data;
+    const filter = state.keyFilter;
+    if (!filter || filter.mode === "all" || !filter.keys || !filter.keys.length) return data;
+    return data.filter((item) => filter.keys.includes(item.key));
+  }
+
+  function getFilteredDailyData() {
+    const dd = state.keyDetailDailyData;
+    if (!dd || !dd.series) return dd;
+    const filter = state.keyFilter;
+    if (!filter || filter.mode === "all" || !filter.keys || !filter.keys.length) return dd;
+    return {
+      dates: dd.dates,
+      series: dd.series.filter((s) => filter.keys.includes(s.name)),
+    };
   }
 
   function applyAutoRefresh() {
@@ -489,6 +533,44 @@
         border-color: #22c55e;
         background: rgba(34, 197, 94, 0.08);
       }
+      .dsapi-plus-key-filter-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-key-filter-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-filter-list label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        line-height: 22px;
+        padding: 1px 4px;
+        cursor: pointer;
+        border-radius: 3px;
+        white-space: nowrap;
+      }
+      .dsapi-plus-filter-list label:hover {
+        background: rgba(2, 14, 54, 0.04);
+      }
+      .dsapi-plus-filter-list input {
+        margin: 0;
+        accent-color: #22c55e;
+      }
       .dsapi-plus-toggle-chart-btn {
         background: none;
         border: 1px solid var(--dsapi-plus-muted);
@@ -732,6 +814,22 @@
         color: #4ade80;
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
+      }
+      body.dark .dsapi-plus-key-filter-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-key-filter-dropdown {
+        background: #1a1a2e;
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+      body.dark .dsapi-plus-filter-list label:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      body.dark .dsapi-plus-filter-all-btn,
+      body.dark .dsapi-plus-filter-none-btn {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
       }
       body.dark .dsapi-plus-auto-refresh-btn:hover {
         background: rgba(255, 255, 255, 0.08);
@@ -1626,6 +1724,16 @@
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
               <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
+              <div class="dsapi-plus-key-filter-wrap" style="position:relative;">
+                <button type="button" class="dsapi-plus-key-filter-btn">筛选${state.keyFilter && state.keyFilter.mode === 'selected' && state.keyFilter.keys?.length ? ` (${state.keyFilter.keys.length})` : ''}</button>
+                <div class="dsapi-plus-key-filter-dropdown" style="display:none;position:absolute;top:100%;right:0;z-index:1000;background:var(--dsapi-plus-bg,#fff);border:1px solid var(--dsapi-plus-muted);border-radius:6px;padding:6px;min-width:160px;max-height:260px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
+                  <div style="display:flex;gap:4px;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid var(--dsapi-plus-muted);">
+                    <button type="button" class="dsapi-plus-filter-all-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:11px;padding:3px 6px;">全选</button>
+                    <button type="button" class="dsapi-plus-filter-none-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:11px;padding:3px 6px;">全取消</button>
+                  </div>
+                  <div class="dsapi-plus-filter-list"></div>
+                </div>
+              </div>
               <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
               <button type="button" class="dsapi-plus-daily-btn${state.keyDetailDailyVisible ? ' active' : ''}">${state.keyDetailDailyVisible ? '隐藏每日详情' : '显示每日详情'}</button>
             </div>
@@ -2354,7 +2462,7 @@
 
   function buildKeyCostChartOption() {
     // 根据 groupByModel 决定使用 Key 级还是模型级数据
-    let data = state.keyDetailData;
+    let data = getFilteredKeyData();
     if (!data || !data.length) return null;
     if (state.groupByModel) {
       // 展平为 (key, model) 二元组，每个条目显示为 "key - model"
@@ -2461,7 +2569,7 @@
   }
 
   function buildKeyDailyChartOption() {
-    const dailyData = state.keyDetailDailyData;
+    const dailyData = getFilteredDailyData();
     if (!dailyData || !dailyData.dates || !dailyData.dates.length || !dailyData.series || !dailyData.series.length) return null;
     const textColor = getChartTextColor();
     const gridColor = getChartGridColor();
@@ -2989,7 +3097,7 @@
       const existingMsg = keySection.querySelector(".dsapi-plus-key-loading");
       if (existingMsg) existingMsg.remove();
       const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
-      const newHTML = renderKeyTableForExport(getKeyDetailData(), state.keyUnitPrices, state.keyTableVisible, state.groupByModel);
+      const newHTML = renderKeyTableForExport(getFilteredKeyData(), state.keyUnitPrices, state.keyTableVisible, state.groupByModel);
       if (tableWrap) {
         tableWrap.outerHTML = newHTML;
       } else {
@@ -3109,6 +3217,36 @@
     }
   }
 
+  function applyKeyFilter(panel) {
+    const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+    if (!keySection) return;
+    // 更新表格
+    const filtered = getFilteredKeyData();
+    const meta = keySection.querySelector(".dsapi-plus-section-meta");
+    if (meta && filtered) meta.textContent = `${filtered.length} 个活跃 Key`;
+    const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
+    if (tableWrap && filtered && filtered.length) {
+      tableWrap.outerHTML = renderKeyTableForExport(filtered, state.keyUnitPrices, state.keyTableVisible, state.groupByModel);
+    }
+    // 更新费用分布图
+    initOrUpdateKeyCostChart(keySection);
+    // 更新每日曲线图
+    const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
+    if (dailyChart && dailyChart.style.display !== "none") {
+      const container = dailyChart.querySelector('[data-dsapi-chart="keyDaily"]');
+      if (container) {
+        const option = buildKeyDailyChartOption();
+        if (option) {
+          getEcharts().then((echarts) => {
+            let instance = echarts.getInstanceByDom(container);
+            if (instance) { instance.setOption(option, { notMerge: true }); instance.resize(); }
+          });
+        }
+      }
+    }
+    for (const { instance } of state.charts) instance?.resize();
+  }
+
   function bindRefresh(panel) {
     const button = panel.querySelector(".dsapi-plus-refresh");
     if (button) {
@@ -3151,7 +3289,7 @@
         // 重新渲染表格和图表
         const keySection = panel.querySelector(".dsapi-plus-section:last-child");
         if (keySection) {
-          const activeData = getKeyDetailData();
+          const activeData = getFilteredKeyData();
           const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
           if (tableWrap && activeData && activeData.length) {
             tableWrap.outerHTML = renderKeyTableForExport(activeData, state.keyUnitPrices, state.keyTableVisible, state.groupByModel);
@@ -3165,6 +3303,76 @@
           initOrUpdateKeyCostChart(keySection);
         }
         for (const { instance } of state.charts) instance?.resize();
+      });
+    }
+
+    // Key 筛选
+    const filterWrap = panel.querySelector(".dsapi-plus-key-filter-wrap");
+    const filterBtn = panel.querySelector(".dsapi-plus-key-filter-btn");
+    const filterDropdown = panel.querySelector(".dsapi-plus-key-filter-dropdown");
+    const filterList = panel.querySelector(".dsapi-plus-filter-list");
+    if (filterWrap && filterBtn && filterDropdown && filterList) {
+      // 填充下拉列表
+      function populateFilterList() {
+        const data = state.keyDetailData;
+        if (!data || !data.length) { filterList.innerHTML = ""; return; }
+        const filter = state.keyFilter || { mode: "all", keys: [] };
+        const allKeys = data.map((k) => k.key);
+        filterList.innerHTML = allKeys
+          .map((k) => {
+            const checked = filter.mode === "all" || filter.keys.includes(k);
+            return `<label><input type="checkbox" value="${escapeHtml(k)}"${checked ? " checked" : ""}><span>${escapeHtml(k)}</span></label>`;
+          })
+          .join("");
+        // 更新按钮文字
+        const selectedCount = filter.mode === "all" ? allKeys.length : filter.keys.length;
+        filterBtn.textContent = selectedCount < allKeys.length ? `筛选 (${selectedCount})` : "筛选";
+      }
+      populateFilterList();
+
+      // 切换下拉菜单
+      filterBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        populateFilterList();
+        filterDropdown.style.display = filterDropdown.style.display === "none" ? "" : "none";
+      });
+
+      // 全选 / 全取消
+      filterWrap.querySelector(".dsapi-plus-filter-all-btn")?.addEventListener("click", () => {
+        state.keyFilter = { mode: "all", keys: [] };
+        saveKeyFilter();
+        filterBtn.textContent = "筛选";
+        filterList.querySelectorAll("input").forEach((cb) => { cb.checked = true; });
+        applyKeyFilter(panel);
+        filterDropdown.style.display = "none";
+      });
+      filterWrap.querySelector(".dsapi-plus-filter-none-btn")?.addEventListener("click", () => {
+        const data = state.keyDetailData;
+        state.keyFilter = { mode: "selected", keys: data ? [] : [] };
+        saveKeyFilter();
+        filterBtn.textContent = "筛选 (0)";
+        filterList.querySelectorAll("input").forEach((cb) => { cb.checked = false; });
+        applyKeyFilter(panel);
+        filterDropdown.style.display = "none";
+      });
+
+      // 单个 checkbox
+      filterList.addEventListener("change", () => {
+        const checks = filterList.querySelectorAll("input:checked");
+        const allKeys = (state.keyDetailData || []).map((k) => k.key);
+        if (checks.length === allKeys.length) {
+          state.keyFilter = { mode: "all", keys: [] };
+        } else {
+          state.keyFilter = { mode: "selected", keys: Array.from(checks).map((cb) => cb.value) };
+        }
+        saveKeyFilter();
+        filterBtn.textContent = checks.length < allKeys.length ? `筛选 (${checks.length})` : "筛选";
+        applyKeyFilter(panel);
+      });
+
+      // 点击外部关闭
+      document.addEventListener("click", (e) => {
+        if (!filterWrap.contains(e.target)) filterDropdown.style.display = "none";
       });
     }
 
@@ -3250,8 +3458,15 @@
         autoRefreshBtn.textContent = `自动刷新 ${getAutoRefreshLabel(state.autoRefreshInterval)}`;
         autoRefreshBtn.classList.toggle("active", state.autoRefreshInterval > 0);
       });
-      // 初始化时应用保存的自动刷新状态
-      if (state.autoRefreshInterval > 0) {
+      // 初始化时应用保存的自动刷新状态（直接读取 localStorage 确保一致性）
+      const savedInterval = (() => {
+        try {
+          return parseInt(localStorage.getItem("dsapi_plus_auto_refresh"), 10) || 0;
+        } catch (e) { return 0; }
+      })();
+      if (savedInterval > 0 && AUTO_REFRESH_INTERVALS.some((i) => i.value === savedInterval)) {
+        state.autoRefreshInterval = savedInterval;
+        autoRefreshBtn.textContent = `自动刷新 ${getAutoRefreshLabel(savedInterval)}`;
         autoRefreshBtn.classList.add("active");
         applyAutoRefresh();
       }
