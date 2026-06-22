@@ -2,7 +2,7 @@
 
 > 为 DeepSeek API 用量页（platform.deepseek.com/usage）注入完整的数据分析仪表盘，并可在对话页快速跳转。
 
-[![Version](https://img.shields.io/badge/version-1.9.48-blue)]()
+[![Version](https://img.shields.io/badge/version-1.9.50-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-supported-orange)]()
 
