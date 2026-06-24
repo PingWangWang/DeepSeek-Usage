@@ -2,8 +2,8 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.9.54
-// @description  用量页增强仪表盘：费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
+// @version      1.11.9
+// @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
 // @match        https://platform.deepseek.com/*
@@ -79,6 +79,12 @@
     // 每日详情
     keyDetailDailyVisible: loadKeyDetailDailyVisible(),
     keyDetailDailyData: null,  // { dates: [], series: [{name, data}] }
+
+    // 订阅功能
+    subscriptions: loadSubscriptions(),           // 订阅配置数组
+    subscriptionPanelVisible: false,              // 订阅面板是否可见
+    subscriptionLastSent: loadSubscriptionLastSent(), // { subId: ISO时间戳 }
+    subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
   };
 
   function loadSectionVisible() {
@@ -260,6 +266,34 @@
   function nextAutoRefreshInterval(current) {
     const idx = AUTO_REFRESH_INTERVALS.findIndex((i) => i.value === current);
     return AUTO_REFRESH_INTERVALS[(idx + 1) % AUTO_REFRESH_INTERVALS.length].value;
+  }
+
+  function loadSubscriptions() {
+    try {
+      const saved = localStorage.getItem("dsapi_plus_subscriptions");
+      if (saved) return JSON.parse(saved);
+    } catch (e) { /* ignore */ }
+    return [];
+  }
+
+  function saveSubscriptions() {
+    try {
+      localStorage.setItem("dsapi_plus_subscriptions", JSON.stringify(state.subscriptions));
+    } catch (e) { /* ignore */ }
+  }
+
+  function loadSubscriptionLastSent() {
+    try {
+      const saved = localStorage.getItem("dsapi_plus_subscription_last_sent");
+      if (saved) return JSON.parse(saved);
+    } catch (e) { /* ignore */ }
+    return {};
+  }
+
+  function saveSubscriptionLastSent() {
+    try {
+      localStorage.setItem("dsapi_plus_subscription_last_sent", JSON.stringify(state.subscriptionLastSent));
+    } catch (e) { /* ignore */ }
   }
 
   function isUsagePage() {
@@ -964,6 +998,341 @@
           font-size: 10px;
         }
       }
+
+      /* ===== 订阅功能样式 ===== */
+      .dsapi-plus-subscribe-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-subscribe-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-subscribe-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .dsapi-plus-subscribe-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.3);
+        z-index: 99999;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 60px;
+        overflow-y: auto;
+      }
+      .dsapi-plus-subscribe-panel {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.15);
+        width: 640px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 80px);
+        overflow-y: auto;
+        padding: 24px;
+        position: relative;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #1a1a2e;
+      }
+      .dsapi-plus-subscribe-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+      }
+      .dsapi-plus-subscribe-panel-header h2 {
+        font-size: 18px;
+        font-weight: 650;
+        margin: 0;
+      }
+      .dsapi-plus-subscribe-panel-close {
+        appearance: none;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 22px;
+        line-height: 1;
+        color: var(--dsapi-plus-muted);
+        padding: 4px 8px;
+      }
+      .dsapi-plus-subscribe-panel-close:hover {
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-subscribe-create-btn {
+        appearance: none;
+        border: 1px dashed var(--dsapi-plus-muted);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 13px;
+        padding: 10px 16px;
+        width: 100%;
+        margin-bottom: 16px;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+      }
+      .dsapi-plus-subscribe-create-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.04);
+        color: var(--dsapi-plus-text);
+        border-color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-subscribe-item {
+        border: 1px solid rgba(2, 14, 54, 0.1);
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+        transition: border-color 0.15s;
+      }
+      .dsapi-plus-subscribe-item:hover {
+        border-color: rgba(2, 14, 54, 0.25);
+      }
+      .dsapi-plus-subscribe-item-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .dsapi-plus-subscribe-item-name {
+        font-weight: 600;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dsapi-plus-subscribe-item-name input[type="checkbox"] {
+        margin: 0;
+        accent-color: #22c55e;
+      }
+      .dsapi-plus-subscribe-item-meta {
+        color: var(--dsapi-plus-muted);
+        font-size: 11px;
+        margin-top: 6px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .dsapi-plus-subscribe-item-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .dsapi-plus-subscribe-item-actions button {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        padding: 3px 8px;
+        opacity: 0.7;
+        transition: opacity 0.15s;
+      }
+      .dsapi-plus-subscribe-item-actions button:hover {
+        opacity: 1;
+        color: var(--dsapi-plus-text);
+        border-color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-del-btn:hover {
+        color: #e74c3c;
+        border-color: #e74c3c;
+      }
+      .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-send-btn {
+        color: #22c55e;
+        border-color: #22c55e;
+        opacity: 0.8;
+      }
+      .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-send-btn:hover {
+        opacity: 1;
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-preview-btn {
+        color: #3b82f6;
+        border-color: #3b82f6;
+        opacity: 0.8;
+      }
+      .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-preview-btn:hover {
+        opacity: 1;
+        background: rgba(59, 130, 246, 0.08);
+      }
+      .dsapi-plus-subscribe-status-success {
+        color: #22c55e;
+      }
+      .dsapi-plus-subscribe-status-error {
+        color: #e74c3c;
+      }
+      .dsapi-plus-subscribe-form {
+        border: 1px solid rgba(2, 14, 54, 0.1);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+      }
+      .dsapi-plus-subscribe-form-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .dsapi-plus-subscribe-form-row:last-child {
+        margin-bottom: 0;
+      }
+      .dsapi-plus-subscribe-form-label {
+        min-width: 80px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--dsapi-plus-text);
+        padding-top: 6px;
+        flex-shrink: 0;
+      }
+      .dsapi-plus-subscribe-form-control {
+        flex: 1;
+        min-width: 0;
+      }
+      .dsapi-plus-subscribe-form-control input[type="text"],
+      .dsapi-plus-subscribe-form-control input[type="url"],
+      .dsapi-plus-subscribe-form-control select {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid rgba(2, 14, 54, 0.15);
+        border-radius: 4px;
+        padding: 6px 8px;
+        font: inherit;
+        font-size: 12px;
+        color: var(--dsapi-plus-text);
+        background: transparent;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .dsapi-plus-subscribe-form-control input:focus,
+      .dsapi-plus-subscribe-form-control select:focus {
+        border-color: #22c55e;
+      }
+      .dsapi-plus-subscribe-form-control .dsapi-plus-subscribe-checkbox-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        padding-top: 4px;
+      }
+      .dsapi-plus-subscribe-form-control .dsapi-plus-subscribe-checkbox-group label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .dsapi-plus-subscribe-form-control .dsapi-plus-subscribe-checkbox-group input {
+        margin: 0;
+        accent-color: #22c55e;
+      }
+      .dsapi-plus-subscribe-form-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 12px;
+      }
+      .dsapi-plus-subscribe-form-actions button {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        padding: 5px 14px;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+      }
+      .dsapi-plus-subscribe-form-actions button:hover {
+        opacity: 1;
+        color: var(--dsapi-plus-text);
+        border-color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-subscribe-form-actions .dsapi-plus-subscribe-save-btn {
+        color: #22c55e;
+        border-color: #22c55e;
+        opacity: 0.8;
+      }
+      .dsapi-plus-subscribe-form-actions .dsapi-plus-subscribe-save-btn:hover {
+        opacity: 1;
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .dsapi-plus-subscribe-form-actions .dsapi-plus-subscribe-cancel-btn:hover {
+        color: #e74c3c;
+        border-color: #e74c3c;
+      }
+      .dsapi-plus-subscribe-schedule-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .dsapi-plus-subscribe-schedule-row select,
+      .dsapi-plus-subscribe-schedule-row input[type="number"] {
+        border: 1px solid rgba(2, 14, 54, 0.15);
+        border-radius: 4px;
+        padding: 4px 6px;
+        font: inherit;
+        font-size: 12px;
+        color: var(--dsapi-plus-text);
+        background: transparent;
+        outline: none;
+      }
+      .dsapi-plus-subscribe-schedule-row select:focus,
+      .dsapi-plus-subscribe-schedule-row input[type="number"]:focus {
+        border-color: #22c55e;
+      }
+      body.dark .dsapi-plus-subscribe-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-subscribe-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
+      }
+      body.dark .dsapi-plus-subscribe-overlay {
+        background: rgba(0,0,0,0.5);
+      }
+      body.dark .dsapi-plus-subscribe-panel {
+        background: #1a1a2e;
+        color: #e0e0e0;
+      }
+      body.dark .dsapi-plus-subscribe-item {
+        border-color: rgba(255,255,255,0.12);
+      }
+      body.dark .dsapi-plus-subscribe-form {
+        border-color: rgba(255,255,255,0.12);
+      }
+      body.dark .dsapi-plus-subscribe-form-control input,
+      body.dark .dsapi-plus-subscribe-form-control select,
+      body.dark .dsapi-plus-subscribe-schedule-row select,
+      body.dark .dsapi-plus-subscribe-schedule-row input[type="number"] {
+        border-color: rgba(255,255,255,0.2);
+        color: #e0e0e0;
+      }
+      body.dark .dsapi-plus-subscribe-panel-close:hover {
+        color: #e0e0e0;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -1619,6 +1988,1237 @@
     return html;
   }
 
+  // ========== 订阅功能：数据管理 ==========
+
+  function getActiveSubscriptionCount() {
+    return state.subscriptions.filter(s => s.enabled).length;
+  }
+
+  function createSubscriptionId() {
+    return "sub_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+  }
+
+  function getDefaultSubscription() {
+    return {
+      id: createSubscriptionId(),
+      name: "新订阅",
+      enabled: true,
+      receiveMethod: "webhook",
+      webhookType: "dingtalk",
+      webhookUrl: "",
+      webhookSecret: "",
+      keyFilterMode: "all",
+      selectedKeys: [],
+      scheduleType: "daily",
+      scheduleInterval: 3600000,
+      scheduleHour: 9,
+      scheduleMinute: 0,
+      scheduleDayOfWeek: 1,
+      scheduleDayOfMonth: 1,
+      contentFormat: "markdown",
+      contentOptions: {
+        summary: true,
+        tokenComposition: true,
+        cacheHitRate: true,
+        modelDetail: false,
+        keyDetail: true,
+        topKeys: 10,
+      },
+      createdAt: new Date().toISOString(),
+      lastSentAt: null,
+      lastSentStatus: null,
+    };
+  }
+
+  // ========== 订阅功能：报告生成 ==========
+
+  function buildSubscriptionReportData(sub) {
+    const panelData = state.lastPanelData;
+    if (!panelData) return null;
+    const { summary, period, amount, cost } = panelData;
+
+    // CNY 月度总费用
+    const monthCnyCost = sumCurrencyAmount(cost, "CNY", "amount");
+    const monthlyCnyCost = sumCurrencyAmount(summary.monthlyCosts, "CNY", "amount");
+    const totalCost = monthCnyCost || monthlyCnyCost || 0;
+    const totalUsage = summary.monthlyUsage || amount.aggregate.tokens || 0;
+
+    // Token 构成 — 从 amount.aggregate
+    const inputMiss = amount.aggregate.promptMiss || 0;
+    const inputHit = amount.aggregate.promptHit || 0;
+    const output = amount.aggregate.response || 0;
+
+    // 费用构成 — 从 cost[CNY] modelCosts.usageCostMap
+    const cnyBreakdown = getCostBreakdown(cost, "CNY");
+    // getCostBreakdown 只返回 input/output 合并值，需要分拆 miss/hit
+    let costMiss = 0, costHit = 0, costOut = 0;
+    for (const block of cost) {
+      if (!block || block.currency !== "CNY") continue;
+      for (const mc of (block.modelCosts || [])) {
+        costMiss += Number((mc.usageCostMap || {})[TOKEN_TYPES.promptMiss] || 0);
+        costHit += Number((mc.usageCostMap || {})[TOKEN_TYPES.promptHit] || 0);
+        costOut += Number((mc.usageCostMap || {})[TOKEN_TYPES.response] || 0);
+      }
+    }
+
+    // 今日费用 — 复用 buildPanelData 逻辑
+    const now = new Date();
+    const todayDay = now.getUTCDate();
+    let todayTotalCost = 0;
+    for (const costBlock of cost) {
+      if (costBlock.currency !== "CNY") continue;
+      for (const dayCost of (costBlock.days || [])) {
+        const match = String(dayCost.date || "").match(/(\d{1,2})$/);
+        if (match && Number(match[1]) === todayDay) {
+          todayTotalCost += (dayCost.amount || 0);
+        }
+      }
+    }
+    // 如果 cost API 没有今日数据，用均价估算
+    if (!todayTotalCost && totalCost > 0 && totalUsage > 0) {
+      const avgPerToken = totalCost / totalUsage;
+      for (const day of (amount.days || [])) {
+        const match = String(day.date || "").match(/(\d{1,2})$/);
+        if (match && Number(match[1]) === todayDay && day.tokens > 0) {
+          todayTotalCost = avgPerToken * day.tokens;
+          break;
+        }
+      }
+    }
+
+    const avgCost = totalUsage > 0 ? (totalCost / totalUsage * 1000000) : 0;
+
+    // 钱包余额
+    var walletCnyBalance = sumCurrencyAmount(summary.normalWallets, "CNY", "balance") +
+                           sumCurrencyAmount(summary.bonusWallets, "CNY", "balance");
+
+    // 缓存命中率
+    var promptTotal = inputMiss + inputHit;
+    var overallCacheHitRate = promptTotal > 0 ? (inputHit / promptTotal * 100) : 0;
+
+    // 过滤 Key 明细（月总数据）
+    var keyDetailData = state.keyDetailData || [];
+    if (sub.keyFilterMode === "selected" && sub.selectedKeys.length) {
+      keyDetailData = keyDetailData.filter(function(item) { return sub.selectedKeys.includes(item.key); });
+    }
+    var topCount = sub.contentOptions.topKeys || 10;
+    var monthKeys = keyDetailData.slice(0, topCount).map(function(k) {
+      var pt = (k.inputMissTokens || 0) + (k.inputHitTokens || 0);
+      return {
+        key: k.key,
+        requestCount: k.requestCount,
+        inputMissTokens: k.inputMissTokens,
+        inputHitTokens: k.inputHitTokens,
+        outputTokens: k.outputTokens,
+        totalTokens: (k.inputMissTokens || 0) + (k.inputHitTokens || 0) + (k.outputTokens || 0),
+        totalCost: k.totalCost,
+        cacheHitRate: pt > 0 ? ((k.inputHitTokens || 0) / pt * 100) : 0,
+      };
+    });
+
+    // 当日 Key 明细 — 从 keyDetailDailyData 提取今日各 Key 费用，并合并月明细字段
+    var todayKeys = [];
+    var dailyData = state.keyDetailDailyData;
+    if (dailyData && dailyData.dates && dailyData.series) {
+      var dates = dailyData.dates;
+      var todayDate = now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-" + String(now.getUTCDate()).padStart(2, "0");
+      var todayIdx = -1;
+      for (var di = 0; di < dates.length; di++) {
+        if (String(dates[di]).indexOf(todayDate) === 0) { todayIdx = di; break; }
+      }
+      if (todayIdx >= 0) {
+        // 构建 key → 月数据 映射
+        var monthMap = {};
+        for (var mi = 0; mi < keyDetailData.length; mi++) {
+          monthMap[keyDetailData[mi].key] = keyDetailData[mi];
+        }
+        var todayByKey = [];
+        for (var si = 0; si < dailyData.series.length; si++) {
+          var s = dailyData.series[si];
+          if (sub.keyFilterMode === "selected" && sub.selectedKeys.length && sub.selectedKeys.indexOf(s.name) < 0) continue;
+          var mk = monthMap[s.name];
+          var entry = { key: s.name, todayCost: s.data[todayIdx] || 0 };
+          if (mk) {
+            var pt = (mk.inputMissTokens || 0) + (mk.inputHitTokens || 0);
+            entry.requestCount = mk.requestCount || 0;
+            entry.totalTokens = (mk.inputMissTokens || 0) + (mk.inputHitTokens || 0) + (mk.outputTokens || 0);
+            entry.cacheHitRate = pt > 0 ? ((mk.inputHitTokens || 0) / pt * 100) : 0;
+          } else {
+            entry.requestCount = 0;
+            entry.totalTokens = 0;
+            entry.cacheHitRate = 0;
+          }
+          todayByKey.push(entry);
+        }
+        todayByKey.sort(function(a, b) { return b.todayCost - a.todayCost; });
+        todayKeys = todayByKey.slice(0, topCount);
+      }
+    }
+
+    return {
+      month: period || (now.getUTCFullYear() + "-" + (now.getUTCMonth() + 1)),
+      generatedAt: now.toISOString(),
+      summary: { totalCost: totalCost, totalUsage: totalUsage, todayCost: todayTotalCost, avgCost: avgCost, balance: walletCnyBalance, cacheHitRate: overallCacheHitRate },
+      tokenComposition: { inputMiss: inputMiss, inputHit: inputHit, output: output },
+      costComposition: { costMiss: costMiss, costHit: costHit, costOut: costOut },
+      todayKeys: todayKeys,
+      monthKeys: monthKeys,
+    };
+  }
+
+  function buildMarkdownReport(sub, data) {
+    if (!data) return "暂无数据";
+    const lines = [];
+    lines.push("# 📊 DeepSeek 用量报告");
+    lines.push(`> 订阅: ${sub.name} ｜ 数据月份: ${data.month}`);
+    lines.push(`> 生成时间: ${data.generatedAt}\n`);
+
+    if (sub.contentOptions.summary) {
+      lines.push("## 💰 费用摘要");
+      lines.push("- **当日费用**: " + formatCnyAmount(data.summary.todayCost));
+      lines.push("- **当月总费用**: " + formatCnyAmount(data.summary.totalCost) + " (用量: " + formatInteger(data.summary.totalUsage) + " Tokens)");
+      lines.push("- **当月平均费用**: " + formatCnyAmount(data.summary.avgCost) + "/1M tokens");
+      lines.push("- **钱包余额**: " + formatCnyAmount(data.summary.balance) + "\n");
+    }
+
+    if (sub.contentOptions.tokenComposition || sub.contentOptions.cacheHitRate) {
+      var tc = data.tokenComposition;
+      var totalTokens = tc.inputMiss + tc.inputHit + tc.output;
+      lines.push("## 📈 Token 构成 & 缓存命中率");
+      if (totalTokens > 0) {
+        var missPct = (tc.inputMiss / totalTokens * 100).toFixed(1);
+        var hitPct = (tc.inputHit / totalTokens * 100).toFixed(1);
+        var outPct = (tc.output / totalTokens * 100).toFixed(1);
+        var cr = data.summary.cacheHitRate.toFixed(1);
+        lines.push("- **输入未缓存**: " + formatInteger(tc.inputMiss) + " Tokens (" + missPct + "%)");
+        lines.push("- **输入缓存命中**: " + formatInteger(tc.inputHit) + " Tokens (" + hitPct + "%)");
+        lines.push("- **输出**: " + formatInteger(tc.output) + " Tokens (" + outPct + "%)");
+        lines.push("- **缓存命中率**: " + cr + "%\n");
+      } else {
+        lines.push("- 暂无 Token 数据\n");
+      }
+    }
+
+    if (sub.contentOptions.keyDetail && data.todayKeys && data.todayKeys.length) {
+      lines.push("## 🔑 当日 Key 明细 (Top " + Math.min(data.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ")");
+      lines.push("| Key | 请求数 | 总Token | 缓存命中率 | 今日费用 |");
+      lines.push("|-----|--------|---------|------------|----------|");
+      for (var _ki = 0; _ki < data.todayKeys.length; _ki++) {
+        var tk = data.todayKeys[_ki];
+        var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
+        lines.push("| " + (tk.key || "未知") + " | " + formatInteger(tk.requestCount) + " | " + formatInteger(tk.totalTokens) + " | " + crStr + " | " + formatCnyAmount(tk.todayCost) + " |");
+      }
+      lines.push("");
+    }
+
+    if (sub.contentOptions.keyDetail && data.monthKeys && data.monthKeys.length) {
+      lines.push("## 🔑 Key 月度总明细 (Top " + data.monthKeys.length + ")");
+      lines.push("| Key | 请求数 | 总Token数 | 缓存命中率 | 总费用 |");
+      lines.push("|-----|--------|-----------|------------|--------|");
+      for (var _kj = 0; _kj < data.monthKeys.length; _kj++) {
+        var item = data.monthKeys[_kj];
+        lines.push("| " + (item.key || "未知") + " | " + formatInteger(item.requestCount) + " | " + formatInteger(item.totalTokens) + " | " + (item.cacheHitRate ? item.cacheHitRate.toFixed(1) + "%" : "-") + " | " + formatCnyAmount(item.totalCost) + " |");
+      }
+      lines.push("");
+    }
+
+    if (sub.contentOptions.modelDetail && data.costComposition) {
+      lines.push("## 📊 费用构成");
+      const { costMiss, costHit, costOut } = data.costComposition;
+      lines.push(`- **输入未缓存费用**: ${formatCnyAmount(costMiss)}`);
+      lines.push(`- **输入缓存命中费用**: ${formatCnyAmount(costHit)}`);
+      lines.push(`- **输出费用**: ${formatCnyAmount(costOut)}\n`);
+    }
+
+    lines.push("---\n");
+    lines.push("📬 *由 DeepSeek Usage Plus 自动生成*");
+    return lines.join("\n");
+  }
+
+  // ========== 订阅功能：发送 ==========
+
+  async function sendSubscriptionReport(sub, showPreview) {
+    const reportData = buildSubscriptionReportData(sub);
+    if (!reportData) return { success: false, error: "暂无数据，请先刷新" };
+
+    let markdown;
+    if (sub.contentFormat === "screenshot") {
+      const screenshotResult = await captureReportScreenshot(sub, reportData);
+      if (!screenshotResult.success) {
+        // 截图失败降级到 Markdown
+        markdown = buildMarkdownReport(sub, reportData);
+        return sendReportText(sub, markdown);
+      }
+      // 发送时总是显示截图预览
+      showReportInPanel(null, screenshotResult.imageUrl);
+      return sendReportImage(sub, screenshotResult.imageBlob, screenshotResult.imageUrl);
+    }
+
+    markdown = buildMarkdownReport(sub, reportData);
+    return sendReportText(sub, markdown);
+  }
+
+  function sendReportText(sub, text) {
+    switch (sub.receiveMethod) {
+      case "webhook":
+        return sendToWebhook(sub, text);
+      case "clipboard":
+        return copyReportToClipboard(text);
+      case "panel":
+        showReportInPanel(text, null);
+        return { success: true };
+      default:
+        return { success: false, error: "未知的接收方式" };
+    }
+  }
+
+  function sendReportImage(sub, imageBlob, imageUrl) {
+    switch (sub.receiveMethod) {
+      case "webhook":
+        return sendImageToWebhook(sub, imageBlob, imageUrl);
+      case "clipboard":
+        return copyImageToClipboard(imageBlob);
+      case "panel":
+        showReportInPanel(null, imageUrl);
+        return { success: true };
+      default:
+        return { success: false, error: "未知的接收方式" };
+    }
+  }
+
+  function sendToWebhook(sub, text) {
+    return new Promise(function (resolve) {
+      var url = sub.webhookUrl && sub.webhookUrl.trim();
+      if (!url) { resolve({ success: false, error: "Webhook URL 未配置" }); return; }
+
+      var payload;
+    switch (sub.webhookType) {
+      case "dingtalk":
+        payload = {
+          msgtype: "markdown",
+          markdown: { title: "DeepSeek用量报告", text },
+        };
+        break;
+      case "feishu":
+        payload = {
+          msg_type: "interactive",
+          card: {
+            header: { title: { tag: "plain_text", content: "DeepSeek 用量报告 - " + sub.name }, template: "blue" },
+            elements: [
+              { tag: "markdown", content: text },
+              { tag: "hr" },
+              { tag: "note", elements: [{ tag: "plain_text", content: "由 DeepSeek Usage Plus 自动生成" }] },
+            ],
+          },
+        };
+        break;
+      case "wecom":
+        payload = { msgtype: "markdown", markdown: { content: text } };
+        break;
+      default:
+        payload = { msgtype: "markdown", markdown: { title: "DeepSeek 用量报告 - " + sub.name, text } };
+    }
+
+      GM.xmlHttpRequest({
+        method: "POST",
+        url: url,
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify(payload),
+        timeout: 15000,
+        onload: function (resp) {
+          try {
+            var result = JSON.parse(resp.responseText);
+            if (sub.webhookType === "dingtalk") {
+              if (result.errcode === 0) { resolve({ success: true, verified: true }); return; }
+              resolve({ success: false, error: decodeDingtalkError(result.errcode, result.errmsg), httpStatus: resp.status });
+              return;
+            }
+            if (sub.webhookType === "feishu") {
+              if (result.code === 0) { resolve({ success: true, verified: true }); return; }
+              resolve({ success: false, error: "飞书错误 (code=" + result.code + "): " + (result.msg || "未知错误"), httpStatus: resp.status });
+              return;
+            }
+            if (sub.webhookType === "wecom") {
+              if (result.errcode === 0) { resolve({ success: true, verified: true }); return; }
+              resolve({ success: false, error: "企业微信错误 (errcode=" + result.errcode + "): " + (result.errmsg || "未知错误"), httpStatus: resp.status });
+              return;
+            }
+            resolve({ success: true, verified: true });
+          } catch (e) {
+            resolve({ success: true, verified: false, note: "已发送" });
+          }
+        },
+        onerror: function (err) {
+          resolve({ success: false, error: "请求失败: " + (err || "未知网络错误") });
+        },
+        ontimeout: function () {
+          resolve({ success: false, error: "请求超时（15秒）" });
+        },
+      });
+    });
+  }
+
+  function decodeDingtalkError(errcode, errmsg) {
+    const map = {
+      "300001": "token 不存在或已过期 — 请检查 Webhook URL 中的 access_token 是否正确",
+      "310000": "安全设置校验失败 — 请在钉钉机器人安全设置中添加关键词 DeepSeek",
+      "50002": "发送频率超出限制 — 每分钟最多 20 条，请稍后再试",
+      "45009": "API 调用次数超限 — 今日调用量已达上限",
+    };
+    const detail = map[String(errcode)] || ("错误码 " + errcode + ": " + (errmsg || "未知错误"));
+    return "钉钉 " + detail;
+  }
+
+  async function sendImageToWebhook(sub, imageBlob, imageUrl) {
+    // Webhook 不支持直接传图片，自动发送文本报告 + 本地显示截图预览
+    if (sub.receiveMethod === "webhook") {
+      const reportData = buildSubscriptionReportData(sub);
+      const text = buildMarkdownReport(sub, reportData);
+      return sendToWebhook(sub, text);
+    }
+    return { success: false, error: "截图模式仅支持 Webhook / 剪贴板 / 面板内预览" };
+  }
+
+  async function copyReportToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async function copyImageToClipboard(blob) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async function copyDataUrlToClipboard(dataUrl) {
+    try {
+      var resp = await fetch(dataUrl);
+      var blob = await resp.blob();
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function showReportInPanel(markdown, imageUrl) {
+    const existing = document.getElementById("dsapi-plus-report-preview");
+    if (existing) existing.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "dsapi-plus-report-preview";
+    overlay.className = "dsapi-plus-subscribe-overlay";
+    overlay.style.cssText = "z-index: 100000; align-items: center; padding-top: 0;";
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+    const content = document.createElement("div");
+    content.className = "dsapi-plus-subscribe-panel";
+    content.style.cssText = "width: 700px; max-height: 80vh; overflow-y: auto;";
+
+    var header = document.createElement("div");
+    header.className = "dsapi-plus-subscribe-panel-header";
+    header.innerHTML = '<h2>📋 报告预览</h2>';
+    var headerRight = document.createElement("div");
+    headerRight.style.cssText = "display:flex;align-items:center;gap:8px;";
+
+    if (imageUrl) {
+      var copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.textContent = "📋 复制图片";
+      copyBtn.style.cssText = "appearance:none;border:1px solid #3b82f6;border-radius:4px;background:transparent;color:#3b82f6;cursor:pointer;font-size:12px;padding:4px 10px;";
+      copyBtn.onclick = function () {
+        copyDataUrlToClipboard(imageUrl).then(function (ok) {
+          copyBtn.textContent = ok ? "✓ 已复制" : "✗ 失败";
+          if (ok) { copyBtn.style.color = "#22c55e"; copyBtn.style.borderColor = "#22c55e"; }
+          setTimeout(function () { copyBtn.textContent = "📋 复制图片"; copyBtn.style.color = "#3b82f6"; copyBtn.style.borderColor = "#3b82f6"; }, 2000);
+        });
+      };
+      headerRight.appendChild(copyBtn);
+    }
+    var closeBtn = document.createElement("button");
+    closeBtn.className = "dsapi-plus-subscribe-panel-close";
+    closeBtn.textContent = "✕";
+    closeBtn.onclick = function () { overlay.remove(); };
+    headerRight.appendChild(closeBtn);
+    header.appendChild(headerRight);
+    content.appendChild(header);
+
+    if (imageUrl) {
+      var img = document.createElement("img");
+      img.src = imageUrl;
+      img.style.cssText = "width: 100%; border-radius: 8px; border: 1px solid rgba(2,14,54,0.1);";
+      content.appendChild(img);
+    } else if (markdown) {
+      const pre = document.createElement("pre");
+      pre.style.cssText = "font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--dsapi-plus-text); margin: 0;";
+      pre.textContent = markdown;
+      content.appendChild(pre);
+    }
+
+    overlay.appendChild(content);
+    document.body.appendChild(overlay);
+  }
+
+  // ========== 订阅功能：截图 ==========
+
+  async function captureReportScreenshot(sub, reportData) {
+    const div = document.createElement("div");
+    div.style.cssText = "position: absolute; left: -9999px; top: 0; width: 680px; padding: 24px; background: #fff; color: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;";
+
+    // 构建报告 HTML（与 Markdown 内容对应）
+    let html = `<h1 style="font-size: 20px; margin: 0 0 4px;">📊 DeepSeek 用量报告</h1>`;
+    html += `<p style="color: #888; font-size: 12px; margin: 0 0 16px;">订阅: ${escapeHtml(sub.name)} ｜ 数据月份: ${reportData.month}<br>生成时间: ${reportData.generatedAt}</p>`;
+
+    if (sub.contentOptions.summary) {
+      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">💰 费用摘要</h2>';
+      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px;"><tr>';
+      html += summaryCell("当日费用", formatCnyAmount(reportData.summary.todayCost));
+      html += summaryCell("当月总费用", formatCnyAmount(reportData.summary.totalCost));
+      html += summaryCell("平均费用", formatCnyAmount(reportData.summary.avgCost) + "/1M");
+      html += summaryCell("钱包余额", formatCnyAmount(reportData.summary.balance));
+      html += '</tr></table>';
+    }
+
+    if (sub.contentOptions.tokenComposition || sub.contentOptions.cacheHitRate) {
+      var scr_total = reportData.tokenComposition.inputMiss + reportData.tokenComposition.inputHit + reportData.tokenComposition.output;
+      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">📈 Token 构成 & 缓存命中率</h2>';
+      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">类型</th><th style="padding:6px 8px; text-align:right;">数量</th><th style="padding:6px 8px; text-align:right;">占比</th></tr>';
+      if (scr_total > 0) {
+        html += scrRow("输入未缓存", reportData.tokenComposition.inputMiss, scr_total);
+        html += scrRow("输入缓存命中", reportData.tokenComposition.inputHit, scr_total);
+        html += scrRow("输出", reportData.tokenComposition.output, scr_total);
+      }
+      html += '</table>';
+      if (scr_total > 0) {
+        html += '<p style="font-size: 12px; color: #888; margin: 6px 0;">缓存命中率: <strong>' + reportData.summary.cacheHitRate.toFixed(1) + '%</strong></p>';
+      }
+    }
+
+    if (sub.contentOptions.keyDetail && reportData.todayKeys && reportData.todayKeys.length) {
+      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 当日 Key 明细 (Top ' + reportData.todayKeys.length + ')</h2>';
+      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">请求数</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
+      for (var _kt = 0; _kt < reportData.todayKeys.length; _kt++) {
+        var tk = reportData.todayKeys[_kt];
+        var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(tk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.requestCount) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(tk.todayCost) + '</td></tr>';
+      }
+      html += '</table>';
+    }
+
+    if (sub.contentOptions.keyDetail && reportData.monthKeys && reportData.monthKeys.length) {
+      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 Key 月度总明细 (Top ' + reportData.monthKeys.length + ')</h2>';
+      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">请求数</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
+      for (var _km = 0; _km < reportData.monthKeys.length; _km++) {
+        var mk = reportData.monthKeys[_km];
+        var crStr = mk.cacheHitRate ? mk.cacheHitRate.toFixed(1) + "%" : "-";
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(mk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.requestCount) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(mk.totalCost) + '</td></tr>';
+      }
+      html += '</table>';
+    }
+
+    if (sub.contentOptions.modelDetail) {
+      html += `<h2 style="font-size: 15px; margin: 16px 0 8px;">📊 费用构成</h2>`;
+      html += `<p style="font-size: 12px;">`;
+      html += `输入未缓存: ${formatCnyAmount(reportData.costComposition.costMiss)} ｜ `;
+      html += `输入缓存命中: ${formatCnyAmount(reportData.costComposition.costHit)} ｜ `;
+      html += `输出: ${formatCnyAmount(reportData.costComposition.costOut)}`;
+      html += `</p>`;
+    }
+
+    html += `<hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;">`;
+    html += `<p style="color: #aaa; font-size: 11px;">由 DeepSeek Usage Plus 自动生成</p>`;
+
+    div.innerHTML = html;
+    document.body.appendChild(div);
+
+    try {
+      if (typeof html2canvas === "undefined") {
+        // html2canvas 未加载，动态加载
+        await loadHtml2Canvas();
+      }
+      const canvas = await html2canvas(div, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      const dataUrl = canvas.toDataURL("image/png");
+      return { success: true, imageBlob: blob, imageUrl: dataUrl };
+    } catch (err) {
+      return { success: false, error: err.message };
+    } finally {
+      div.remove();
+    }
+  }
+
+  function loadHtml2Canvas() {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("html2canvas 加载失败"));
+      document.head.appendChild(script);
+    });
+  }
+
+  function summaryCell(label, value) {
+    return '<td style="padding: 8px 12px; border: 1px solid #eee; text-align: center; min-width: 100px;">' +
+      '<div style="color: #888; font-size: 11px;">' + label + '</div>' +
+      '<div style="font-size: 15px; font-weight: 600; margin-top: 4px;">' + value + '</div></td>';
+  }
+
+  function scrRow(label, val, total) {
+    var pct = total > 0 ? (val / total * 100).toFixed(1) + "%" : "-";
+    return '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + label + '</td>' +
+      '<td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(val) + '</td>' +
+      '<td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + pct + '</td></tr>';
+  }
+
+  // ========== 订阅功能：面板 UI ==========
+
+  function openSubscriptionPanel() {
+    state.subscriptionPanelVisible = true;
+    const overlay = document.createElement("div");
+    overlay.className = "dsapi-plus-subscribe-overlay";
+    overlay.id = "dsapi-plus-subscribe-overlay";
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeSubscriptionPanel();
+    });
+
+    const panel = renderSubscriptionPanel();
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    bindSubscriptionPanelEvents(panel);
+  }
+
+  function closeSubscriptionPanel() {
+    state.subscriptionPanelVisible = false;
+    const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
+    if (overlay) overlay.remove();
+  }
+
+  function renderSubscriptionPanel() {
+    const panel = document.createElement("div");
+    panel.className = "dsapi-plus-subscribe-panel";
+    panel.id = "dsapi-plus-subscribe-panel-inner";
+
+    // 头部
+    let html = `<div class="dsapi-plus-subscribe-panel-header">
+      <h2>📬 订阅管理</h2>
+      <button type="button" class="dsapi-plus-subscribe-panel-close" data-action="close">✕</button>
+    </div>`;
+
+    // 新建按钮
+    html += `<button type="button" class="dsapi-plus-subscribe-create-btn" data-action="create">＋ 新建订阅</button>`;
+
+    // 订阅列表
+    const subs = state.subscriptions;
+    if (!subs || !subs.length) {
+      html += `<div style="text-align: center; padding: 32px 16px; color: var(--dsapi-plus-muted); font-size: 13px;">暂无订阅配置，点击上方按钮创建</div>`;
+    } else {
+      html += `<div class="dsapi-plus-subscribe-list">`;
+      for (let i = 0; i < subs.length; i++) {
+        const s = subs[i];
+        const statusClass = s.lastSentStatus === "success" ? "dsapi-plus-subscribe-status-success"
+          : s.lastSentStatus === "error" ? "dsapi-plus-subscribe-status-error" : "";
+        const statusText = s.lastSentStatus === "success" ? "✓ 发送成功"
+          : s.lastSentStatus === "error" ? "✗ 发送失败"
+          : s.lastSentAt ? "已配置" : "未发送";
+        const lastSentText = s.lastSentAt ? new Date(s.lastSentAt).toLocaleString() : "从未";
+        const scheduleText = getScheduleLabel(s);
+        const methodText = getMethodLabel(s);
+        const formatText = s.contentFormat === "screenshot" ? "截图" : "Markdown";
+
+        html += `<div class="dsapi-plus-subscribe-item" data-index="${i}">
+          <div class="dsapi-plus-subscribe-item-head">
+            <div class="dsapi-plus-subscribe-item-name">
+              <input type="checkbox" ${s.enabled ? "checked" : ""} data-action="toggle" data-index="${i}">
+              <span>${escapeHtml(s.name)}</span>
+              <span class="${statusClass}" style="font-size:11px;">${statusText}</span>
+            </div>
+            <div class="dsapi-plus-subscribe-item-actions">
+              <button data-action="edit" data-index="${i}">编辑</button>
+              <button data-action="preview" data-index="${i}" class="dsapi-plus-subscribe-preview-btn">预览</button>
+              <button data-action="send" data-index="${i}" class="dsapi-plus-subscribe-send-btn">立即发送</button>
+              <button data-action="delete" data-index="${i}" class="dsapi-plus-subscribe-del-btn">删除</button>
+            </div>
+          </div>
+          <div class="dsapi-plus-subscribe-item-meta">
+            <span>${methodText}</span>
+            <span>${formatText}</span>
+            <span>${scheduleText}</span>
+            <span>上次发送: ${lastSentText}</span>
+          </div>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    panel.innerHTML = html;
+    return panel;
+  }
+
+  function getScheduleLabel(sub) {
+    switch (sub.scheduleType) {
+      case "interval":
+        const min = Math.round(sub.scheduleInterval / 60000);
+        return `每 ${min} 分钟`;
+      case "daily":
+        return `每天 ${String(sub.scheduleHour).padStart(2,"0")}:${String(sub.scheduleMinute).padStart(2,"0")}`;
+      case "weekly":
+        const days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+        return `每周${days[sub.scheduleDayOfWeek]} ${String(sub.scheduleHour).padStart(2,"0")}:${String(sub.scheduleMinute).padStart(2,"0")}`;
+      case "monthly":
+        return `每月${sub.scheduleDayOfMonth}日 ${String(sub.scheduleHour).padStart(2,"0")}:${String(sub.scheduleMinute).padStart(2,"0")}`;
+      default:
+        return "未配置";
+    }
+  }
+
+  function getMethodLabel(sub) {
+    const methodMap = { webhook: "Webhook", clipboard: "剪贴板", panel: "面板预览" };
+    const typeMap = { dingtalk: "钉钉", feishu: "飞书", wecom: "企业微信" };
+    const method = methodMap[sub.receiveMethod] || sub.receiveMethod;
+    const type = sub.receiveMethod === "webhook" ? (typeMap[sub.webhookType] || sub.webhookType) : "";
+    return type ? `${method} (${type})` : method;
+  }
+
+  // ========== 订阅功能：编辑表单 ==========
+
+  function renderSubscriptionForm(sub, index) {
+    const isNew = index === undefined || index === null;
+    const s = sub || getDefaultSubscription();
+
+    let html = `<div class="dsapi-plus-subscribe-form" data-form-index="${index !== undefined ? index : ""}">`;
+
+    // 名称
+    html += `<div class="dsapi-plus-subscribe-form-row">
+      <div class="dsapi-plus-subscribe-form-label">名称</div>
+      <div class="dsapi-plus-subscribe-form-control">
+        <input type="text" id="sub-form-name" value="${escapeHtml(s.name)}" placeholder="订阅名称">
+      </div>
+    </div>`;
+
+    // 接收方式
+    html += `<div class="dsapi-plus-subscribe-form-row">
+      <div class="dsapi-plus-subscribe-form-label">接收方式</div>
+      <div class="dsapi-plus-subscribe-form-control">
+        <select id="sub-form-method">
+          <option value="webhook" ${s.receiveMethod === "webhook" ? "selected" : ""}>Webhook 推送</option>
+          <option value="clipboard" ${s.receiveMethod === "clipboard" ? "selected" : ""}>复制到剪贴板</option>
+          <option value="panel" ${s.receiveMethod === "panel" ? "selected" : ""}>面板内预览</option>
+        </select>
+      </div>
+    </div>`;
+
+    // Webhook 配置（仅在 webhook 模式下显示）
+    const webhookDisplay = s.receiveMethod === "webhook" ? "" : "display:none;";
+    html += `<div id="sub-form-webhook-group" style="${webhookDisplay}">
+      <div class="dsapi-plus-subscribe-form-row">
+        <div class="dsapi-plus-subscribe-form-label">平台</div>
+        <div class="dsapi-plus-subscribe-form-control">
+          <select id="sub-form-webhook-type">
+            <option value="dingtalk" ${s.webhookType === "dingtalk" ? "selected" : ""}>钉钉</option>
+            <option value="feishu" ${s.webhookType === "feishu" ? "selected" : ""}>飞书</option>
+            <option value="wecom" ${s.webhookType === "wecom" ? "selected" : ""}>企业微信</option>
+          </select>
+        </div>
+      </div>
+      <div class="dsapi-plus-subscribe-form-row">
+        <div class="dsapi-plus-subscribe-form-label">Webhook URL</div>
+        <div class="dsapi-plus-subscribe-form-control">
+          <input type="url" id="sub-form-webhook-url" value="${escapeHtml(s.webhookUrl || "")}" placeholder="https://oapi.dingtalk.com/robot/send?access_token=...">
+        </div>
+      </div>
+      <div class="dsapi-plus-subscribe-form-row">
+        <div class="dsapi-plus-subscribe-form-label">签名密钥</div>
+        <div class="dsapi-plus-subscribe-form-control">
+          <input type="text" id="sub-form-webhook-secret" value="${escapeHtml(s.webhookSecret || "")}" placeholder="可选，飞书安全设置需要">
+        </div>
+      </div>
+    </div>`;
+
+    // 内容格式
+    html += `<div class="dsapi-plus-subscribe-form-row">
+      <div class="dsapi-plus-subscribe-form-label">内容格式</div>
+      <div class="dsapi-plus-subscribe-form-control">
+        <select id="sub-form-format">
+          <option value="markdown" ${s.contentFormat === "markdown" ? "selected" : ""}>Markdown 文本</option>
+          <option value="screenshot" ${s.contentFormat === "screenshot" ? "selected" : ""}>截图</option>
+        </select>
+      </div>
+    </div>`;
+
+    // Key 筛选
+    const keyNames = getAvailableKeyNames();
+    html += `<div class="dsapi-plus-subscribe-form-row">
+      <div class="dsapi-plus-subscribe-form-label">Key 筛选</div>
+      <div class="dsapi-plus-subscribe-form-control">
+        <select id="sub-form-key-mode">
+          <option value="all" ${s.keyFilterMode === "all" ? "selected" : ""}>全部 Key</option>
+          <option value="selected" ${s.keyFilterMode === "selected" ? "selected" : ""}>选择特定 Key</option>
+        </select>
+      </div>
+    </div>`;
+
+    const keyDisplay = s.keyFilterMode === "selected" ? "" : "display:none;";
+    html += `<div id="sub-form-key-select-group" style="${keyDisplay}">
+      <div class="dsapi-plus-subscribe-form-row">
+        <div class="dsapi-plus-subscribe-form-label">选择 Key</div>
+        <div class="dsapi-plus-subscribe-form-control">
+          <div class="dsapi-plus-subscribe-checkbox-group" id="sub-form-keys">`;
+    if (keyNames.length) {
+      for (const kn of keyNames) {
+        const checked = s.selectedKeys && s.selectedKeys.includes(kn) ? "checked" : "";
+        html += `<label><input type="checkbox" value="${escapeHtml(kn)}" ${checked}> ${escapeHtml(kn)}</label>`;
+      }
+    } else {
+      html += `<span style="color: var(--dsapi-plus-muted);">暂无 Key 数据，请先刷新导入 Key 明细</span>`;
+    }
+    html += `</div></div></div></div>`;
+
+    // 发送频率
+    html += `<div class="dsapi-plus-subscribe-form-row">
+      <div class="dsapi-plus-subscribe-form-label">发送频率</div>
+      <div class="dsapi-plus-subscribe-form-control">
+        <div class="dsapi-plus-subscribe-schedule-row" id="sub-form-schedule">`;
+
+    if (s.scheduleType === "interval") {
+      html += `<select id="sub-form-stype">
+        <option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option>
+      </select>
+      <input type="number" id="sub-form-interval-val" value="${Math.round(s.scheduleInterval / 60000)}" min="1" style="width:60px;"> 分钟`;
+    } else {
+      const st = s.scheduleType;
+      html += `<select id="sub-form-stype">
+        <option value="interval">间隔</option>
+        <option value="daily" ${st === "daily" ? "selected" : ""}>每天</option>
+        <option value="weekly" ${st === "weekly" ? "selected" : ""}>每周</option>
+        <option value="monthly" ${st === "monthly" ? "selected" : ""}>每月</option>
+      </select>`;
+      if (st === "weekly") {
+        html += `<select id="sub-form-weekday">
+          ${["周日","周一","周二","周三","周四","周五","周六"].map((d,i) => `<option value="${i}" ${s.scheduleDayOfWeek === i ? "selected" : ""}>${d}</option>`).join("")}
+        </select>`;
+      }
+      if (st === "monthly") {
+        html += `<input type="number" id="sub-form-monthday" value="${s.scheduleDayOfMonth}" min="1" max="31" style="width:50px;"> 日`;
+      }
+      html += ` <input type="number" id="sub-form-hour" value="${s.scheduleHour}" min="0" max="23" style="width:50px;"> 时
+        <input type="number" id="sub-form-minute" value="${s.scheduleMinute}" min="0" max="59" style="width:50px;"> 分`;
+    }
+    html += `</div></div></div>`;
+
+    // 内容定制
+    html += `<div class="dsapi-plus-subscribe-form-row">
+      <div class="dsapi-plus-subscribe-form-label">内容定制</div>
+      <div class="dsapi-plus-subscribe-form-control">
+        <div class="dsapi-plus-subscribe-checkbox-group">`;
+    const contentChecks = [
+      ["summary", "费用摘要"],
+      ["tokenComposition", "Token 构成"],
+      ["cacheHitRate", "缓存命中率"],
+      ["modelDetail", "费用明细"],
+      ["keyDetail", "Key 明细"],
+    ];
+    for (const [k, label] of contentChecks) {
+      const checked = s.contentOptions[k] ? "checked" : "";
+      html += `<label><input type="checkbox" data-content-opt="${k}" ${checked}> ${label}</label>`;
+    }
+    html += `</div>
+        <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 11px; color: var(--dsapi-plus-muted);">Top Key 数量:</span>
+          <select id="sub-form-top-keys" style="border:1px solid rgba(2,14,54,0.15);border-radius:4px;padding:2px 4px;font-size:12px;">
+            ${[5, 10, 20, 50].map(n => `<option value="${n}" ${s.contentOptions.topKeys === n ? "selected" : ""}>${n}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+    </div>`;
+
+    // 按钮区
+    html += `<div class="dsapi-plus-subscribe-form-actions">
+      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save">💾 保存</button>
+      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel">取消</button>
+    </div>`;
+
+    html += `</div>`;
+    return html;
+  }
+
+  function getAvailableKeyNames() {
+    const data = state.keyDetailData;
+    if (!data || !data.length) return [];
+    return data.map(item => item.key || item.api_key || item.apiKey).filter(Boolean);
+  }
+
+  // ========== 订阅功能：面板事件绑定 ==========
+
+  function bindSubscriptionPanelEvents(panel) {
+    // 关闭
+    panel.querySelector("[data-action='close']")?.addEventListener("click", closeSubscriptionPanel);
+
+    // 新建
+    panel.querySelector("[data-action='create']")?.addEventListener("click", () => {
+      // 隐藏列表，显示表单
+      const list = panel.querySelector(".dsapi-plus-subscribe-list");
+      const createBtn = panel.querySelector("[data-action='create']");
+      const existingForm = panel.querySelector(".dsapi-plus-subscribe-form");
+      if (existingForm) { existingForm.remove(); return; }
+      if (list) list.style.display = "none";
+      if (createBtn) createBtn.style.display = "none";
+      const noData = panel.querySelector("div[style*='text-align: center']");
+      if (noData) noData.style.display = "none";
+
+      const formHtml = renderSubscriptionForm(null, null);
+      // 在 create-btn 之后插入
+      createBtn.insertAdjacentHTML("afterend", formHtml);
+      const formEl = panel.querySelector(".dsapi-plus-subscribe-form");
+      bindFormEvents(formEl, panel, null);
+    });
+
+    // 编辑
+    panel.querySelectorAll("[data-action='edit']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.index, 10);
+        const sub = state.subscriptions[idx];
+        if (!sub) return;
+        const item = panel.querySelector(`.dsapi-plus-subscribe-item[data-index="${idx}"]`);
+        const existingForm = panel.querySelector(".dsapi-plus-subscribe-form");
+        if (existingForm) { existingForm.remove(); }
+        if (item) item.style.display = "none";
+        const formHtml = renderSubscriptionForm(sub, idx);
+        if (item) {
+          item.insertAdjacentHTML("afterend", formHtml);
+        } else {
+          panel.querySelector(".dsapi-plus-subscribe-list")?.insertAdjacentHTML("beforeend", formHtml);
+        }
+        const formEl = panel.querySelector(".dsapi-plus-subscribe-form");
+        bindFormEvents(formEl, panel, idx);
+      });
+    });
+
+    // 删除
+    panel.querySelectorAll("[data-action='delete']").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.index, 10);
+        const sub = state.subscriptions[idx];
+        if (!sub) return;
+        if (!confirm(`确定删除订阅「${sub.name}」？`)) return;
+        state.subscriptions.splice(idx, 1);
+        saveSubscriptions();
+        // 重新渲染面板
+        const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
+        if (overlay) {
+          const newPanel = renderSubscriptionPanel();
+          overlay.innerHTML = "";
+          overlay.appendChild(newPanel);
+          bindSubscriptionPanelEvents(newPanel);
+        }
+        // 更新按钮状态
+        updateSubscribeBtnState();
+      });
+    });
+
+    // 预览
+    panel.querySelectorAll("[data-action='preview']").forEach(function (previewBtn) {
+      previewBtn.addEventListener("click", function () {
+        var idx = parseInt(previewBtn.dataset.index, 10);
+        var sub = state.subscriptions[idx];
+        if (!sub) return;
+        var reportData = buildSubscriptionReportData(sub);
+        if (!reportData) { alert("暂无数据，请先刷新"); return; }
+        previewBtn.disabled = true;
+        previewBtn.textContent = "生成中…";
+        // 预览总是用截图展示
+        if (sub.contentFormat === "screenshot") {
+          captureReportScreenshot(sub, reportData).then(function (sr) {
+            previewBtn.disabled = false;
+            previewBtn.textContent = "预览";
+            if (sr.success) {
+              showReportInPanel(null, sr.imageUrl);
+            } else {
+              showReportInPanel(buildMarkdownReport(sub, reportData), null);
+            }
+          });
+        } else {
+          showReportInPanel(buildMarkdownReport(sub, reportData), null);
+          previewBtn.disabled = false;
+          previewBtn.textContent = "预览";
+        }
+      });
+    });
+
+    // 立即发送
+    panel.querySelectorAll("[data-action='send']").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const idx = parseInt(btn.dataset.index, 10);
+        const sub = state.subscriptions[idx];
+        if (!sub) return;
+        btn.disabled = true;
+        btn.textContent = "发送中…";
+        const result = await sendSubscriptionReport(sub);
+        // 更新状态
+        sub.lastSentAt = new Date().toISOString();
+        sub.lastSentStatus = result.success ? "success" : "error";
+        state.subscriptionLastSent[sub.id] = sub.lastSentAt;
+        saveSubscriptions();
+        saveSubscriptionLastSent();
+        // 更新按钮状态
+        btn.textContent = result.success ? (result.note ? "已发送" : "✓ 已送达") : "✗ 发送失败";
+        if (!result.success) {
+          const errOverlay = document.createElement("div");
+          errOverlay.className = "dsapi-plus-subscribe-overlay";
+          errOverlay.style.cssText = "z-index: 100001; align-items: center; padding-top: 0;";
+          const errPanel = document.createElement("div");
+          errPanel.className = "dsapi-plus-subscribe-panel";
+          errPanel.style.cssText = "width: 520px; max-height: 85vh; overflow-y: auto;";
+          let diagHtml = '<div class="dsapi-plus-subscribe-panel-header"><h2>🔴 发送失败 — 诊断信息</h2><button class="dsapi-plus-subscribe-panel-close" onclick="this.closest(\'.dsapi-plus-subscribe-overlay\').remove()">✕</button></div>';
+          diagHtml += '<div style="margin-bottom:16px; padding:12px; background:rgba(231,76,60,0.06); border-radius:8px; border-left:3px solid #e74c3c;">';
+          diagHtml += '<div style="font-size:13px; line-height:1.7; word-break:break-all;">';
+          diagHtml += '<p style="margin:0 0 6px;"><strong>错误信息：</strong>' + escapeHtml(result.error || "未知错误") + '</p>';
+          if (result.httpStatus) {
+            diagHtml += '<p style="margin:0 0 6px;"><strong>HTTP 状态码：</strong>' + result.httpStatus + '</p>';
+          }
+          diagHtml += '</div></div>';
+          diagHtml += '<div style="font-size:12px; color:var(--dsapi-plus-muted); line-height:1.8; margin-bottom:8px;">';
+          diagHtml += '<p style="margin:0 0 6px;"><strong>📋 自助排查：</strong></p>';
+          diagHtml += '<ol style="margin:0; padding-left:18px;">';
+          diagHtml += '<li>检查 Webhook URL 是否正确（完整的 https://oapi.dingtalk.com/robot/send?access_token=...）</li>';
+          diagHtml += '<li>钉钉机器人安全设置：需选择<strong>自定义关键词</strong>，填入 <code>DeepSeek</code></li>';
+          diagHtml += '<li>如果选择<strong>加签</strong>方式，需在订阅配置中填写密钥（当前暂未实现签名）</li>';
+          diagHtml += '<li>确认钉钉群未解散、机器人未被移除</li>';
+          diagHtml += '<li>如果不是 HTTPS 链接，浏览器可能拦截请求</li>';
+          diagHtml += '</ol></div>';
+          diagHtml += '<div style="font-size:12px;"><strong>配置的 Webhook：</strong><br><code style="word-break:break-all; background:rgba(2,14,54,0.04); padding:4px 8px; border-radius:4px; display:block; margin-top:4px;">';
+          diagHtml += escapeHtml((sub.webhookUrl || "").replace(/access_token=[^&]+/, "access_token=***")) + '</code></div>';
+          errPanel.innerHTML = diagHtml;
+          errOverlay.appendChild(errPanel);
+          document.body.appendChild(errOverlay);
+          errOverlay.addEventListener("click", (e) => { if (e.target === errOverlay) errOverlay.remove(); });
+        }
+        setTimeout(() => { btn.disabled = false; btn.textContent = "立即发送"; }, 2000);
+      });
+    });
+
+    // 启用/禁用复选框
+    panel.querySelectorAll("[data-action='toggle']").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const idx = parseInt(cb.dataset.index, 10);
+        if (state.subscriptions[idx]) {
+          state.subscriptions[idx].enabled = cb.checked;
+          saveSubscriptions();
+          updateSubscribeBtnState();
+        }
+      });
+    });
+  }
+
+  function bindFormEvents(formEl, panel, editIndex) {
+    // 接收方式切换 → 显示/隐藏 Webhook 组
+    const methodSelect = formEl.querySelector("#sub-form-method");
+    const webhookGroup = formEl.querySelector("#sub-form-webhook-group");
+    if (methodSelect && webhookGroup) {
+      methodSelect.addEventListener("change", () => {
+        webhookGroup.style.display = methodSelect.value === "webhook" ? "" : "none";
+      });
+    }
+
+    // Key 筛选模式切换 → 显示/隐藏 Key 选择
+    const keyModeSelect = formEl.querySelector("#sub-form-key-mode");
+    const keySelectGroup = formEl.querySelector("#sub-form-key-select-group");
+    if (keyModeSelect && keySelectGroup) {
+      keyModeSelect.addEventListener("change", () => {
+        keySelectGroup.style.display = keyModeSelect.value === "selected" ? "" : "none";
+      });
+    }
+
+    // 频率类型切换
+    const stypeSelect = formEl.querySelector("#sub-form-stype");
+    const scheduleRow = formEl.querySelector("#sub-form-schedule");
+    if (stypeSelect && scheduleRow) {
+      function handleScheduleChange() {
+        // 读取当前值（优先 DOM → 其次 dataset 缓存 → 最后默认值）
+        const currentHour = parseInt(formEl.querySelector("#sub-form-hour")?.value ?? formEl.dataset.savedHour ?? 9, 10);
+        const currentMinute = parseInt(formEl.querySelector("#sub-form-minute")?.value ?? formEl.dataset.savedMinute ?? 0, 10);
+        const currentInterval = parseInt(formEl.querySelector("#sub-form-interval-val")?.value ?? formEl.dataset.savedInterval ?? 60, 10);
+        const currentWeekday = parseInt(formEl.querySelector("#sub-form-weekday")?.value ?? formEl.dataset.savedWeekday ?? 1, 10);
+        const currentMonthday = parseInt(formEl.querySelector("#sub-form-monthday")?.value ?? formEl.dataset.savedMonthday ?? 1, 10);
+        // 存到 dataset 中，跨模式切换后恢复
+        Object.assign(formEl.dataset, { savedHour: currentHour, savedMinute: currentMinute, savedInterval: currentInterval, savedWeekday: currentWeekday, savedMonthday: currentMonthday });
+        const st = formEl.querySelector("#sub-form-stype")?.value || "daily";
+
+        let schedHtml = "";
+        if (st === "interval") {
+          schedHtml = `<select id="sub-form-stype"><option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select>
+            <input type="number" id="sub-form-interval-val" value="${currentInterval}" min="1" style="width:60px;"> 分钟`;
+        } else {
+          schedHtml = `<select id="sub-form-stype"><option value="interval">间隔</option><option value="daily" ${st === "daily" ? "selected" : ""}>每天</option><option value="weekly" ${st === "weekly" ? "selected" : ""}>每周</option><option value="monthly" ${st === "monthly" ? "selected" : ""}>每月</option></select>`;
+          if (st === "weekly") {
+            schedHtml += `<select id="sub-form-weekday">${["周日","周一","周二","周三","周四","周五","周六"].map((d,i) => `<option value="${i}" ${currentWeekday === i ? "selected" : ""}>${d}</option>`).join("")}</select>`;
+          }
+          if (st === "monthly") {
+            schedHtml += `<input type="number" id="sub-form-monthday" value="${currentMonthday}" min="1" max="31" style="width:50px;"> 日`;
+          }
+          schedHtml += ` <input type="number" id="sub-form-hour" value="${currentHour}" min="0" max="23" style="width:50px;"> 时
+            <input type="number" id="sub-form-minute" value="${currentMinute}" min="0" max="59" style="width:50px;"> 分`;
+        }
+        scheduleRow.innerHTML = schedHtml;
+        // 把 change 处理函数绑定到新的 select 上
+        const newStype = scheduleRow.querySelector("#sub-form-stype");
+        if (newStype) newStype.addEventListener("change", handleScheduleChange);
+      }
+      stypeSelect.addEventListener("change", handleScheduleChange);
+    }
+
+    // 保存
+    formEl.querySelector("[data-action='save']")?.addEventListener("click", () => {
+      const formData = collectFormData(formEl);
+      if (!formData.name.trim()) { alert("请输入订阅名称"); return; }
+      if (formData.receiveMethod === "webhook" && !formData.webhookUrl.trim()) { alert("请输入 Webhook URL"); return; }
+
+      if (editIndex !== null && editIndex !== undefined && state.subscriptions[editIndex]) {
+        // 编辑已有
+        Object.assign(state.subscriptions[editIndex], formData);
+      } else {
+        // 新建
+        formData.id = createSubscriptionId();
+        formData.createdAt = new Date().toISOString();
+        state.subscriptions.push(formData);
+      }
+      saveSubscriptions();
+      updateSubscribeBtnState();
+
+      // 重新渲染面板
+      const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
+      if (overlay) {
+        const newPanel = renderSubscriptionPanel();
+        overlay.innerHTML = "";
+        overlay.appendChild(newPanel);
+        bindSubscriptionPanelEvents(newPanel);
+      }
+    });
+
+    // 取消
+    formEl.querySelector("[data-action='cancel']")?.addEventListener("click", () => {
+      const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
+      if (overlay) {
+        const newPanel = renderSubscriptionPanel();
+        overlay.innerHTML = "";
+        overlay.appendChild(newPanel);
+        bindSubscriptionPanelEvents(newPanel);
+      }
+    });
+  }
+
+  function collectFormData(formEl) {
+    const getName = (id) => formEl.querySelector(id)?.value || "";
+    const getChecked = (id) => Array.from(formEl.querySelectorAll(id + ":checked")).map(el => el.value);
+    const getBool = (id) => formEl.querySelector(id)?.checked || false;
+
+    const stype = getName("#sub-form-stype");
+    const contentOpts = {};
+    formEl.querySelectorAll("[data-content-opt]").forEach(cb => {
+      contentOpts[cb.dataset.contentOpt] = cb.checked;
+    });
+
+    const data = {
+      name: getName("#sub-form-name"),
+      receiveMethod: getName("#sub-form-method"),
+      webhookType: getName("#sub-form-webhook-type"),
+      webhookUrl: getName("#sub-form-webhook-url"),
+      webhookSecret: getName("#sub-form-webhook-secret"),
+      contentFormat: getName("#sub-form-format"),
+      keyFilterMode: getName("#sub-form-key-mode"),
+      selectedKeys: getChecked("#sub-form-keys input[type='checkbox']"),
+      scheduleType: stype,
+      scheduleInterval: stype === "interval" ? (parseInt(getName("#sub-form-interval-val"), 10) || 60) * 60000 : 3600000,
+      scheduleHour: stype !== "interval" ? (parseInt(getName("#sub-form-hour"), 10) || 9) : 9,
+      scheduleMinute: stype !== "interval" ? (parseInt(getName("#sub-form-minute"), 10) || 0) : 0,
+      scheduleDayOfWeek: stype === "weekly" ? (parseInt(getName("#sub-form-weekday"), 10) || 1) : 1,
+      scheduleDayOfMonth: stype === "monthly" ? (parseInt(getName("#sub-form-monthday"), 10) || 1) : 1,
+      contentOptions: {
+        summary: contentOpts.summary !== false,
+        tokenComposition: contentOpts.tokenComposition !== false,
+        cacheHitRate: contentOpts.cacheHitRate !== false,
+        modelDetail: !!contentOpts.modelDetail,
+        keyDetail: contentOpts.keyDetail !== false,
+        topKeys: parseInt(getName("#sub-form-top-keys"), 10) || 10,
+      },
+      lastSentAt: null,
+      lastSentStatus: null,
+    };
+    return data;
+  }
+
+  function updateSubscribeBtnState() {
+    const btn = document.querySelector(".dsapi-plus-subscribe-btn");
+    if (btn) {
+      const hasActive = getActiveSubscriptionCount() > 0;
+      btn.classList.toggle("active", hasActive);
+    }
+  }
+
+  // ========== 订阅功能：定时检查 ==========
+
+  function startSubscriptionCheckTimer() {
+    stopSubscriptionCheckTimer();
+    state.subscriptionCheckTimer = setInterval(checkSubscriptionSchedule, 60000);
+  }
+
+  function stopSubscriptionCheckTimer() {
+    if (state.subscriptionCheckTimer) {
+      clearInterval(state.subscriptionCheckTimer);
+      state.subscriptionCheckTimer = 0;
+    }
+  }
+
+  function checkSubscriptionSchedule() {
+    const now = new Date();
+    for (const sub of state.subscriptions) {
+      if (!sub.enabled) continue;
+      const lastSent = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
+      if (shouldSendNow(sub, now, lastSent)) {
+        sendSubscriptionReport(sub).then(result => {
+          sub.lastSentAt = new Date().toISOString();
+          sub.lastSentStatus = result.success ? "success" : "error";
+          state.subscriptionLastSent[sub.id] = sub.lastSentAt;
+          saveSubscriptions();
+          saveSubscriptionLastSent();
+        });
+      }
+    }
+  }
+
+  function shouldSendNow(sub, now, lastSent) {
+    if (!lastSent) return true; // 从未发送过，立即触发
+    const subMinHour = sub.scheduleHour * 60 + sub.scheduleMinute;
+    const nowMinHour = now.getHours() * 60 + now.getMinutes();
+    const lastSentMinHour = lastSent.getHours() * 60 + lastSent.getMinutes();
+
+    switch (sub.scheduleType) {
+      case "interval":
+        return (now.getTime() - lastSent.getTime()) >= sub.scheduleInterval;
+      case "daily":
+        // 如果今天还没发送过，且已经过了设定时间
+        if (lastSent.toDateString() === now.toDateString()) return false;
+        return nowMinHour >= subMinHour;
+      case "weekly":
+        if (lastSent.toDateString() === now.toDateString()) return false;
+        return now.getDay() === sub.scheduleDayOfWeek && nowMinHour >= subMinHour;
+      case "monthly":
+        if (lastSent.toDateString() === now.toDateString()) return false;
+        return now.getDate() === sub.scheduleDayOfMonth && nowMinHour >= subMinHour;
+      default:
+        return false;
+    }
+  }
+
   function buildPanelData(data) {
     const { period, summary, amount, cost } = data;
 
@@ -1745,6 +3345,7 @@
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
+          <button type="button" class="dsapi-plus-subscribe-btn${getActiveSubscriptionCount() > 0 ? ' active' : ''}">订阅</button>
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.requests ? ' active' : ''}" data-section="requests">请求</button>
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.tokens ? ' active' : ''}" data-section="tokens">Tokens</button>
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存</button>
@@ -2121,7 +3722,7 @@
   }
 
   function getEcharts() {
-    return Promise.resolve(window.echarts);
+    return Promise.resolve(typeof echarts !== "undefined" ? echarts : window.echarts);
   }
 
   function disposeCharts() {
@@ -2913,21 +4514,22 @@
     `;
   }
 
-  // 获取导出 ZIP 文件（返回 ArrayBuffer）
-  async function fetchExportBlob(path, signal) {
+  // 获取导出 ZIP 文件（返回 ArrayBuffer），使用原生 fetch 避免 JSZip Promise 沙箱兼容问题
+  function fetchExportBlob(path, signal) {
     const { token, source } = getStoredAuthToken();
     const headers = { accept: "application/octet-stream, application/zip, */*" };
-    const appVersion = document.querySelector('meta[name="commit-id"]')?.content;
-    if (appVersion) headers["X-App-Version"] = appVersion;
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const appVersion = document.querySelector('meta[name="commit-id"]');
+    if (appVersion && appVersion.content) headers["X-App-Version"] = appVersion.content;
+    if (token) headers.Authorization = "Bearer " + token;
 
-    const response = await fetch(path, {
-      credentials: "include",
-      headers,
-      signal,
-    });
-    if (!response.ok) throw new Error(`下载失败：${response.status} ${response.statusText}`);
-    return response.arrayBuffer();
+    var absUrl = path;
+    if (absUrl.indexOf("http") !== 0) absUrl = location.origin + "/" + absUrl.replace(/^\//, "");
+
+    return fetch(absUrl, { credentials: "include", headers, signal })
+      .then(function (response) {
+        if (!response.ok) throw new Error("下载失败：" + response.status + " " + response.statusText);
+        return response.arrayBuffer();
+      });
   }
 
   // 解析 CSV/TSV 文本为二维数组
@@ -2967,21 +4569,27 @@
       const { year, month } = parsePeriod(period);
       const query = `year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
 
-      // 1. 下载 ZIP 文件
-      const zipBuffer = await fetchExportBlob(`/api/v0/usage/export?${query}`, signal);
-      console.log("[DeepSeek Usage Panel Plus] 下载 ZIP 大小", zipBuffer.byteLength, "bytes");
+      // 1. 下载 ZIP 文件（返回 ArrayBuffer）
+      var zipBuffer = await fetchExportBlob(`/api/v0/usage/export?${query}`, signal);
+      console.log("[DeepSeek Usage Panel Plus] 下载 ZIP 大小", zipBuffer.byteLength || 0, "bytes");
 
       // 2. 用 JSZip 解压
-      const JSZip = window.JSZip;
-      if (!JSZip) throw new Error("JSZip 库未加载");
-      const zip = await JSZip.loadAsync(zipBuffer);
+      if (typeof JSZip === "undefined") throw new Error("JSZip 库未加载");
+      var zip = await JSZip.loadAsync(zipBuffer);
+      console.log("[DeepSeek Usage Panel Plus] JSZip 解压成功, 文件列表:", Object.keys(zip.files));
 
       // 3. 找到 amount-*.csv 文件
-      const csvFiles = Object.keys(zip.files).filter((name) => /amount.*\.csv$/i.test(name));
+      var csvFiles = Object.keys(zip.files).filter(function (name) { return /amount.*\.csv$/i.test(name); });
       console.log("[DeepSeek Usage Panel Plus] ZIP 中的 CSV 文件", csvFiles);
-      if (!csvFiles.length) throw new Error(`ZIP 中未找到 amount-*.csv 文件，可用文件：${Object.keys(zip.files).join(", ")}`);
+      if (!csvFiles.length) throw new Error("ZIP 中未找到 amount-*.csv 文件，可用文件：" + Object.keys(zip.files).join(", "));
 
-      const csvContent = await zip.files[csvFiles[0]].async("string");
+      // 用 zip.file() 官方 API，async("string") 在沙箱中可能 hang，改为 arraybuffer
+      var csvZipObj = zip.file(csvFiles[0]);
+      if (!csvZipObj) throw new Error("JSZip 找不到文件: " + csvFiles[0]);
+      console.log("[DeepSeek Usage Panel Plus] JSZip file obj:", csvZipObj.name);
+      var csvBuf = await csvZipObj.async("arraybuffer");
+      console.log("[DeepSeek Usage Panel Plus] CSV arraybuffer 长度:", csvBuf.byteLength);
+      var csvContent = new TextDecoder("utf-8").decode(new Uint8Array(csvBuf));
       console.log("[DeepSeek Usage Panel Plus] CSV 内容前 500 字符", csvContent.slice(0, 500));
 
       // 4. 解析 CSV
@@ -3134,18 +4742,39 @@
       state.keyDetailData = sorted;
       state.keyDetailDailyData = dailyData;
       state.keyDetailUpdateTime = new Date().toLocaleTimeString("zh-CN");
-      state.keyUnitPrices = {}; // 不再需要，已从 CSV 获取实际价格
+      state.keyUnitPrices = {};
       state.keyDetailLoading = false;
-      saveKeyDetailData(); // 持久化到本地
-      updateKeyDetailUI();
+      saveKeyDetailData();
+      // 延迟刷新 UI，避免和 renderPanel 的 DOM 重建竞态
+      scheduleKeyDetailUIUpdate();
       return sorted;
     } catch (error) {
       console.error("[DeepSeek Usage Panel Plus] 获取 Key 明细失败", error);
       state.keyDetailLoading = false;
       state.keyDetailError = error.message || String(error);
-      updateKeyDetailUI();
+      scheduleKeyDetailUIUpdate();
       return null;
     }
+  }
+
+  // 延迟刷新 Key 明细 UI（避免与 renderPanel DOM 重建竞态）
+  var _keyDetailUIRetryTimer = 0;
+  function scheduleKeyDetailUIUpdate() {
+    if (_keyDetailUIRetryTimer) clearTimeout(_keyDetailUIRetryTimer);
+    _keyDetailUIRetryTimer = setTimeout(function () { tryUpdateKeyDetailUI(0); }, 80);
+  }
+  function tryUpdateKeyDetailUI(retries) {
+    var panel = document.getElementById(PANEL_ID);
+    if (!panel) {
+      if (retries < 5) { _keyDetailUIRetryTimer = setTimeout(function () { tryUpdateKeyDetailUI(retries + 1); }, 200); }
+      return;
+    }
+    var keySection = panel.querySelector(".dsapi-plus-section:last-child");
+    if (!keySection) {
+      if (retries < 5) { _keyDetailUIRetryTimer = setTimeout(function () { tryUpdateKeyDetailUI(retries + 1); }, 200); }
+      return;
+    }
+    updateKeyDetailUI();
   }
 
   // 更新 UI 中的 Key 明细区域
@@ -3589,6 +5218,12 @@
     }
     // 初始化时应用原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
+
+    // 订阅按钮点击 → 打开订阅面板
+    const subscribeBtn = panel.querySelector(".dsapi-plus-subscribe-btn");
+    if (subscribeBtn) {
+      subscribeBtn.addEventListener("click", openSubscriptionPanel);
+    }
   }
 
   function ensurePanel() {
@@ -3711,6 +5346,8 @@
       state.observer = null;
     }
     disposeCharts();
+    stopSubscriptionCheckTimer();
+    closeSubscriptionPanel();
     state.lastPanelData = null;
     state.selectedPeriod = "";
     state.booted = false;
@@ -3747,6 +5384,7 @@
     ensurePanel();
     startObservers();
     startThemeObserver();
+    startSubscriptionCheckTimer();
     scheduleRefresh(true);
   }
 

@@ -2,13 +2,14 @@
 
 > 本项目基于 [DeepSeek Usage+](https://greasyfork.org/zh-CN/scripts/578066-deepseek-usage-%E5%AE%98%E6%96%B9api%E7%94%A8%E9%87%8F%E9%A1%B5%E5%A2%9E%E5%BC%BA%E4%BB%AA%E8%A1%A8%E7%9B%98) 修改扩展，为 DeepSeek API 用量页（platform.deepseek.com/usage）注入完整的数据分析仪表盘，并可在对话页快速跳转。
 
-[![Version](https://img.shields.io/badge/version-1.9.51-blue)]()
+[![Version](https://img.shields.io/badge/version-1.11.8-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-supported-orange)]()
 
 ## ✨ 项目亮点
 
 - **一键安装，开箱即用**：Tampermonkey 用户脚本，安装即可在用量页看到扩展面板，无需任何配置
+- **订阅推送**：支持定时向钉钉/飞书/企业微信 Webhook 推送用量报告（Markdown 或截图），无需后端服务
 - **费用、Token、缓存全掌握**：当日费用、月度费用、均价、当月可用 Tokens，一目了然
 - **交互图表驱动分析**：基于 ECharts 实现请求趋势、Token 构成、缓存命中率、模型分布等 7 张交互图表
 - **Key 级明细账单**：支持从 DeepSeek 导出 ZIP 导入 Key 级别的用量和费用数据，含堆叠条形图和模型细分
@@ -74,6 +75,7 @@
 | 功能 | 说明 |
 |------|------|
 | 月份选择 | 下拉框切换统计月份，数据实时刷新 |
+| 订阅 | 点击弹出订阅管理面板，可创建定时推送配置（Webhook / 剪贴板 / 面板预览） |
 | 请求 / Tokens / 缓存 / Token构成 / 模型 | 开关按钮，独立控制各图表区块显示/隐藏，状态持久化 |
 | 显示原生内容 | 切换 DeepSeek 页面原有内容的显示/隐藏 |
 | 自动刷新 | 点击循环切换：关→30秒→5分钟→10分钟→30分钟→1小时，启用时绿色高亮 |
@@ -92,9 +94,21 @@
 ### 对话页快捷入口
 在 [chat.deepseek.com](https://chat.deepseek.com) 页面左上角，工具栏中会出现一个柱状图图标按钮，点击即可在新窗口打开 API 用量页。
 
+### 订阅推送（新功能）
+在扩展用量面板顶部工具栏新增 **订阅** 按钮，支持定时推送用量报告：
+
+- **接收方式**：钉钉 / 飞书 / 企业微信 Webhook、复制到剪贴板、面板内预览
+- **内容格式**：Markdown 文本或截图（自动生成美观的报告 HTML 截图）
+- **发送频率**：间隔（自定义分钟数）、每天、每周、每月
+- **内容定制**：可选择包含费用摘要、Token 构成、缓存命中率、Key 明细、Top N Key 等
+- **Key 筛选**：可针对特定 API Key 生成报告
+- **定时触发**：页面打开期间按设定频率自动检查并推送
+- **无需后端**：直接使用浏览器 fetch 调用 Webhook URL，飞书/钉钉/企微均支持 CORS
+
 ## 📁 项目结构
 
-- `DeepSeek Usage.txt` — 用户脚本主文件（~3400 行），包含全部逻辑、样式、模板和图表配置
+- `DeepSeek-Usage.user.js` — 用户脚本主文件（~5200 行），包含全部逻辑、样式、模板和图表配置
+- `DeepSeek-Usage.meta.js` — Tampermonkey 元数据头文件
 
 ## 🛠️ 技术架构
 
@@ -102,6 +116,7 @@
 |------|------|
 | [ECharts 5.6](https://echarts.apache.org/) | 交互图表渲染（SVG 模式） |
 | [JSZip 3.10](https://stuk.github.io/jszip/) | 解压 DeepSeek 导出的 ZIP 文件 |
+| [html2canvas 1.4](https://html2canvas.hertzen.com/) | 报告截图生成（按需动态加载） |
 | Tampermonkey `@require` | CDN 加载上述库 |
 | MutationObserver | 监听页面变化自动刷新 |
 | History API 拦截 | 感知 SPA 路由变化 |
@@ -139,6 +154,7 @@
 - 数据归一化：`normalizeSummary()` / `normalizeAmount()` / `normalizeCost()`
 - 面板渲染：`buildPanelData()` → `renderPanel()` → `initCharts()`
 - Key 明细导入：`fetchKeyDetailFromExport()` → 下载 ZIP → JSZip 解压 → `parseCSV()` 解析 → 聚合展示
+- 订阅推送：`sendSubscriptionReport()` → `buildMarkdownReport()` / `captureReportScreenshot()` → `sendToWebhook()` / `copyReportToClipboard()`
 
 ### 待改进
 - Key 明细导入目前依赖页面上的导出 ZIP 接口，速度较慢
