@@ -2,13 +2,13 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.9
+// @version      1.11.16
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
 // @match        https://platform.deepseek.com/*
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_xmlhttpRequest
 // @require      https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
 // @require      https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js
 // @downloadURL  https://raw.githubusercontent.com/PingWangWang/DeepSeek-Usage/main/DeepSeek-Usage.user.js
@@ -2249,8 +2249,7 @@
         markdown = buildMarkdownReport(sub, reportData);
         return sendReportText(sub, markdown);
       }
-      // 发送时总是显示截图预览
-      showReportInPanel(null, screenshotResult.imageUrl);
+      // 发送截图（不展示预览）
       return sendReportImage(sub, screenshotResult.imageBlob, screenshotResult.imageUrl);
     }
 
@@ -2292,32 +2291,29 @@
       if (!url) { resolve({ success: false, error: "Webhook URL 未配置" }); return; }
 
       var payload;
-    switch (sub.webhookType) {
-      case "dingtalk":
-        payload = {
-          msgtype: "markdown",
-          markdown: { title: "DeepSeek用量报告", text },
-        };
-        break;
-      case "feishu":
-        payload = {
-          msg_type: "interactive",
-          card: {
-            header: { title: { tag: "plain_text", content: "DeepSeek 用量报告 - " + sub.name }, template: "blue" },
-            elements: [
-              { tag: "markdown", content: text },
-              { tag: "hr" },
-              { tag: "note", elements: [{ tag: "plain_text", content: "由 DeepSeek Usage Plus 自动生成" }] },
-            ],
-          },
-        };
-        break;
-      case "wecom":
-        payload = { msgtype: "markdown", markdown: { content: text } };
-        break;
-      default:
-        payload = { msgtype: "markdown", markdown: { title: "DeepSeek 用量报告 - " + sub.name, text } };
-    }
+      switch (sub.webhookType) {
+        case "dingtalk":
+          payload = { msgtype: "markdown", markdown: { title: "DeepSeek用量报告", text } };
+          break;
+        case "feishu":
+          payload = {
+            msg_type: "interactive",
+            card: {
+              header: { title: { tag: "plain_text", content: "DeepSeek 用量报告 - " + sub.name }, template: "blue" },
+              elements: [
+                { tag: "markdown", content: text },
+                { tag: "hr" },
+                { tag: "note", elements: [{ tag: "plain_text", content: "由 DeepSeek Usage Plus 自动生成" }] },
+              ],
+            },
+          };
+          break;
+        case "wecom":
+          payload = { msgtype: "markdown", markdown: { content: text } };
+          break;
+        default:
+          payload = { msgtype: "markdown", markdown: { title: "DeepSeek 用量报告 - " + sub.name, text } };
+      }
 
       GM.xmlHttpRequest({
         method: "POST",
@@ -2348,12 +2344,8 @@
             resolve({ success: true, verified: false, note: "已发送" });
           }
         },
-        onerror: function (err) {
-          resolve({ success: false, error: "请求失败: " + (err || "未知网络错误") });
-        },
-        ontimeout: function () {
-          resolve({ success: false, error: "请求超时（15秒）" });
-        },
+        onerror: function () { resolve({ success: false, error: "请求失败: 网络错误" }); },
+        ontimeout: function () { resolve({ success: false, error: "请求超时（15秒）" }); },
       });
     });
   }
@@ -4514,22 +4506,90 @@
     `;
   }
 
-  // 获取导出 ZIP 文件（返回 ArrayBuffer），使用原生 fetch 避免 JSZip Promise 沙箱兼容问题
+  // 获取导出 ZIP 文件（返回 Blob）
   function fetchExportBlob(path, signal) {
-    const { token, source } = getStoredAuthToken();
-    const headers = { accept: "application/octet-stream, application/zip, */*" };
-    const appVersion = document.querySelector('meta[name="commit-id"]');
+    var auth = getStoredAuthToken();
+    var headers = { accept: "application/octet-stream, application/zip, */*" };
+    var appVersion = document.querySelector('meta[name="commit-id"]');
     if (appVersion && appVersion.content) headers["X-App-Version"] = appVersion.content;
-    if (token) headers.Authorization = "Bearer " + token;
+    if (auth.token) headers.Authorization = "Bearer " + auth.token;
 
     var absUrl = path;
     if (absUrl.indexOf("http") !== 0) absUrl = location.origin + "/" + absUrl.replace(/^\//, "");
 
-    return fetch(absUrl, { credentials: "include", headers, signal })
-      .then(function (response) {
-        if (!response.ok) throw new Error("下载失败：" + response.status + " " + response.statusText);
-        return response.arrayBuffer();
+    return new Promise(function (resolve, reject) {
+      var gmReq = GM.xmlHttpRequest({
+        method: "GET",
+        url: absUrl,
+        headers: headers,
+        responseType: "blob",
+        timeout: 30000,
+        onload: function (resp) {
+          if (resp.status >= 200 && resp.status < 300 && resp.response) {
+            resolve(resp.response);
+          } else {
+            reject(new Error("下载失败：" + resp.status + " " + (resp.statusText || "")));
+          }
+        },
+        onerror: function () { reject(new Error("GM_xmlhttpRequest 网络错误")); },
+        ontimeout: function () { reject(new Error("下载超时（30秒）")); },
       });
+      if (signal) {
+        if (signal.aborted) { reject(new Error("请求已取消")); return; }
+        signal.addEventListener("abort", function () { if (gmReq && gmReq.abort) gmReq.abort(); reject(new Error("请求已取消")); }, { once: true });
+      }
+    });
+  }
+
+  // 从 ZIP ArrayBuffer 中提取指定文件的内容（手动解析 ZIP 结构，避免 GM 沙箱中 JSZip async 挂起）
+  function extractFileFromZip(zipBuf, targetName) {
+    var zipName = targetName.toLowerCase();
+    var bytes = new Uint8Array(zipBuf);
+    var i = 0;
+    // 查找中央目录结束标记 (EOCD) 0x06054b50
+    for (i = bytes.length - 22; i >= 0; i--) {
+      if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) break;
+    }
+    if (i < 0) return null;
+    // 中央目录偏移量（EOCD 偏移 16 字节处，4 字节）
+    var cdOffset = (bytes[i + 16]) | (bytes[i + 17] << 8) | (bytes[i + 18] << 16) | (bytes[i + 19] << 24);
+    // 遍历中央目录条目，查找目标文件
+    var pos = cdOffset;
+    while (pos < bytes.length - 46) {
+      if (bytes[pos] !== 0x50 || bytes[pos + 1] !== 0x4b || bytes[pos + 2] !== 0x01 || bytes[pos + 3] !== 0x02) break;
+      var fileNameLen = (bytes[pos + 28]) | (bytes[pos + 29] << 8);
+      var extraLen = (bytes[pos + 30]) | (bytes[pos + 31] << 8);
+      var commentLen = (bytes[pos + 32]) | (bytes[pos + 33] << 8);
+      var compressedSize = (bytes[pos + 20]) | (bytes[pos + 21] << 8) | (bytes[pos + 22] << 16) | (bytes[pos + 23] << 24);
+      var compressionMethod = (bytes[pos + 10]) | (bytes[pos + 11] << 8);
+      var localOffset = (bytes[pos + 42]) | (bytes[pos + 43] << 8) | (bytes[pos + 44] << 16) | (bytes[pos + 45] << 24);
+      var nameBuf = bytes.subarray(pos + 46, pos + 46 + fileNameLen);
+      var name = new TextDecoder("utf-8").decode(nameBuf).toLowerCase();
+      if (name === zipName || name.replace(/^.*\//, "") === zipName.replace(/^.*\//, "")) {
+        // 找到文件 → 从 local file header 读取文件数据
+        var localPos = localOffset;
+        if (localPos + 30 > bytes.length) return null;
+        var localFNLen = (bytes[localPos + 26]) | (bytes[localPos + 27] << 8);
+        var localExtraLen = (bytes[localPos + 28]) | (bytes[localPos + 29] << 8);
+        var dataStart = localPos + 30 + localFNLen + localExtraLen;
+        var fileData = bytes.subarray(dataStart, dataStart + compressedSize);
+        if (compressionMethod === 0) {
+          // 未压缩（stored）
+          return new TextDecoder("utf-8").decode(fileData);
+        }
+        if (compressionMethod === 8) {
+          // Deflate 压缩 — 使用 pako（JSZip 内包含）同步解压
+          try {
+            var deflate = JSZip.compressions.DEFLATE;
+            var csvBytes = deflate.uncompress(fileData);
+            return new TextDecoder("utf-8").decode(csvBytes);
+          } catch (e) { return null; }
+        }
+        return null;
+      }
+      pos += 46 + fileNameLen + extraLen + commentLen;
+    }
+    return null;
   }
 
   // 解析 CSV/TSV 文本为二维数组
@@ -4569,9 +4629,17 @@
       const { year, month } = parsePeriod(period);
       const query = `year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
 
-      // 1. 下载 ZIP 文件（返回 ArrayBuffer）
-      var zipBuffer = await fetchExportBlob(`/api/v0/usage/export?${query}`, signal);
-      console.log("[DeepSeek Usage Panel Plus] 下载 ZIP 大小", zipBuffer.byteLength || 0, "bytes");
+      // 1. 下载 ZIP 文件
+      var zipBlob = await fetchExportBlob(`/api/v0/usage/export?${query}`, signal);
+      console.log("[DeepSeek Usage Panel Plus] 下载 ZIP 大小", (zipBlob.size || 0), "bytes");
+
+      // Blob → ArrayBuffer（JSZip 需要 ArrayBuffer）
+      var zipBuffer = await new Promise(function (res, rej) {
+        var reader = new FileReader();
+        reader.onload = function () { res(reader.result); };
+        reader.onerror = function () { rej(new Error("Blob 转 ArrayBuffer 失败")); };
+        reader.readAsArrayBuffer(zipBlob);
+      });
 
       // 2. 用 JSZip 解压
       if (typeof JSZip === "undefined") throw new Error("JSZip 库未加载");
@@ -4581,16 +4649,11 @@
       // 3. 找到 amount-*.csv 文件
       var csvFiles = Object.keys(zip.files).filter(function (name) { return /amount.*\.csv$/i.test(name); });
       console.log("[DeepSeek Usage Panel Plus] ZIP 中的 CSV 文件", csvFiles);
-      if (!csvFiles.length) throw new Error("ZIP 中未找到 amount-*.csv 文件，可用文件：" + Object.keys(zip.files).join(", "));
+      if (!csvFiles.length) throw new Error("ZIP 中未找到 amount-*.csv 文件");
 
-      // 用 zip.file() 官方 API，async("string") 在沙箱中可能 hang，改为 arraybuffer
-      var csvZipObj = zip.file(csvFiles[0]);
-      if (!csvZipObj) throw new Error("JSZip 找不到文件: " + csvFiles[0]);
-      console.log("[DeepSeek Usage Panel Plus] JSZip file obj:", csvZipObj.name);
-      var csvBuf = await csvZipObj.async("arraybuffer");
-      console.log("[DeepSeek Usage Panel Plus] CSV arraybuffer 长度:", csvBuf.byteLength);
-      var csvContent = new TextDecoder("utf-8").decode(new Uint8Array(csvBuf));
-      console.log("[DeepSeek Usage Panel Plus] CSV 内容前 500 字符", csvContent.slice(0, 500));
+      // 手动解析 ZIP 提取 CSV（JSZip 的 async 方法在 GM 沙箱中会挂起）
+      var csvContent = extractFileFromZip(zipBuffer, csvFiles[0]);
+      if (!csvContent) throw new Error("无法从 ZIP 中提取 " + csvFiles[0]);
 
       // 4. 解析 CSV
       const { headers, rows } = parseCSV(csvContent);
