@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.20
+// @version      1.11.21
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3232,23 +3232,21 @@
   }
 
   function shouldSendNow(sub, now, lastSent) {
-    if (!lastSent) return true; // 从未发送过，立即触发
     const subMinHour = sub.scheduleHour * 60 + sub.scheduleMinute;
     const nowMinHour = now.getHours() * 60 + now.getMinutes();
-    const lastSentMinHour = lastSent.getHours() * 60 + lastSent.getMinutes();
 
     switch (sub.scheduleType) {
       case "interval":
+        if (!lastSent) return true;
         return (now.getTime() - lastSent.getTime()) >= sub.scheduleInterval;
       case "daily":
-        // 如果今天还没发送过，且已经过了设定时间
-        if (lastSent.toDateString() === now.toDateString()) return false;
+        if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
         return nowMinHour >= subMinHour;
       case "weekly":
-        if (lastSent.toDateString() === now.toDateString()) return false;
+        if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
         return now.getDay() === sub.scheduleDayOfWeek && nowMinHour >= subMinHour;
       case "monthly":
-        if (lastSent.toDateString() === now.toDateString()) return false;
+        if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
         return now.getDate() === sub.scheduleDayOfMonth && nowMinHour >= subMinHour;
       default:
         return false;
