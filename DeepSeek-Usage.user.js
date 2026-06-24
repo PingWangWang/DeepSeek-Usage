@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.21
+// @version      1.11.24
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -5492,10 +5492,6 @@
     window.clearTimeout(state.refreshTimer);
     window.clearTimeout(state.mutationTimer);
     window.clearTimeout(state.routeTimer);
-    if (state.autoRefreshTimer) {
-      clearInterval(state.autoRefreshTimer);
-      state.autoRefreshTimer = 0;
-    }
     state.abortController?.abort();
     state.abortController = null;
     if (state.observer) {
@@ -5503,7 +5499,6 @@
       state.observer = null;
     }
     disposeCharts();
-    stopSubscriptionCheckTimer();
     closeSubscriptionPanel();
     state.lastPanelData = null;
     state.selectedPeriod = "";
