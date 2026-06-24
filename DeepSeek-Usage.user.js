@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.16
+// @version      1.11.20
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -513,6 +513,27 @@
         border-color: #22c55e;
         background: rgba(34, 197, 94, 0.08);
       }
+      .dsapi-plus-clear-cache-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.6;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-clear-cache-btn:hover {
+        opacity: 1;
+        background: rgba(214, 69, 65, 0.08);
+        color: rgb(214, 69, 65);
+        border-color: rgba(214, 69, 65, 0.3);
+      }
       .dsapi-plus-toggle-key-btn {
         background: transparent;
         border: 1px solid var(--dsapi-plus-muted);
@@ -877,6 +898,11 @@
       body.dark .dsapi-plus-period-select:focus {
         border-color: rgba(255, 255, 255, 0.6);
         color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-clear-cache-btn:hover {
+        background: rgba(214, 69, 65, 0.15);
+        color: #f87171;
+        border-color: rgba(214, 69, 65, 0.4);
       }
       @media (max-width: 920px) {
         .dsapi-plus-chart-grid {
@@ -2127,27 +2153,45 @@
         if (String(dates[di]).indexOf(todayDate) === 0) { todayIdx = di; break; }
       }
       if (todayIdx >= 0) {
-        // 构建 key → 月数据 映射
-        var monthMap = {};
-        for (var mi = 0; mi < keyDetailData.length; mi++) {
-          monthMap[keyDetailData[mi].key] = keyDetailData[mi];
-        }
+        // 从每日数据中获取今日请求数和 Tokens
         var todayByKey = [];
+        // 兼容旧数据：若 dailyData 无 requests/tokens，用月数据填充
+        var hasDailyDetail = dailyData.requests && dailyData.tokens;
+        if (!hasDailyDetail) {
+          // 构建 key → 月数据 映射（降级）
+          var monthMap = {};
+          for (var mi = 0; mi < keyDetailData.length; mi++) {
+            monthMap[keyDetailData[mi].key] = keyDetailData[mi];
+          }
+        }
         for (var si = 0; si < dailyData.series.length; si++) {
           var s = dailyData.series[si];
           if (sub.keyFilterMode === "selected" && sub.selectedKeys.length && sub.selectedKeys.indexOf(s.name) < 0) continue;
-          var mk = monthMap[s.name];
-          var entry = { key: s.name, todayCost: s.data[todayIdx] || 0 };
-          if (mk) {
-            var pt = (mk.inputMissTokens || 0) + (mk.inputHitTokens || 0);
-            entry.requestCount = mk.requestCount || 0;
-            entry.totalTokens = (mk.inputMissTokens || 0) + (mk.inputHitTokens || 0) + (mk.outputTokens || 0);
-            entry.cacheHitRate = pt > 0 ? ((mk.inputHitTokens || 0) / pt * 100) : 0;
-          } else {
-            entry.requestCount = 0;
-            entry.totalTokens = 0;
-            entry.cacheHitRate = 0;
+          var todayReq = 0, todayTokens = 0, todayHitRate = 0;
+          if (hasDailyDetail) {
+            var reqSeries = dailyData.requests[si] ? dailyData.requests[si].data : null;
+            var tokSeries = dailyData.tokens[si] ? dailyData.tokens[si].data : null;
+            var missSeries = dailyData.miss && dailyData.miss[si] ? dailyData.miss[si].data : null;
+            var hitSeries = dailyData.hit && dailyData.hit[si] ? dailyData.hit[si].data : null;
+            todayReq = reqSeries ? (reqSeries[todayIdx] || 0) : 0;
+            todayTokens = tokSeries ? (tokSeries[todayIdx] || 0) : 0;
+            var todayMiss = missSeries ? (missSeries[todayIdx] || 0) : 0;
+            var todayHit = hitSeries ? (hitSeries[todayIdx] || 0) : 0;
+            todayHitRate = (todayMiss + todayHit) > 0 ? (todayHit / (todayMiss + todayHit) * 100) : 0;
+          } else if (monthMap[s.name]) {
+            // 降级：用月数据中的日均值
+            var mk = monthMap[s.name];
+            var daysInMonth = dailyData.dates.length || 1;
+            todayReq = Math.round((mk.requestCount || 0) / daysInMonth);
+            todayTokens = Math.round(((mk.inputMissTokens || 0) + (mk.inputHitTokens || 0) + (mk.outputTokens || 0)) / daysInMonth);
           }
+          var entry = {
+            key: s.name,
+            todayCost: s.data[todayIdx] || 0,
+            requestCount: todayReq,
+            totalTokens: todayTokens,
+            cacheHitRate: todayHitRate,
+          };
           todayByKey.push(entry);
         }
         todayByKey.sort(function(a, b) { return b.todayCost - a.todayCost; });
@@ -3345,6 +3389,7 @@
           <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型</button>
           <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;">自动刷新 ${getAutoRefreshLabel(state.autoRefreshInterval)}</button>
           <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">${state.nativeContentVisible ? '隐藏原生内容' : '显示原生内容'}</button>
+          <button type="button" class="dsapi-plus-clear-cache-btn" style="margin-left:4px;">清除缓存</button>
           <button type="button" class="dsapi-plus-refresh">刷新</button>
         </div>
       </div>
@@ -4753,8 +4798,8 @@
 
       const sorted = Object.values(keyMap).sort((a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount);
 
-      // 8. 按 (key, date) 聚合每日费用（用于每日详情折线图）
-      const dailyMap = {};
+      // 8. 按 (key, date) 聚合每日详情（费用、请求数、Token，用于每日详情折线图和订阅报告日明细）
+      const dailyDetailMap = {};
       const allDates = new Set();
       for (const row of rows) {
         const keyName = String(row[colName] || "unknown");
@@ -4765,35 +4810,62 @@
         const type = colType >= 0 ? String(row[colType] || "") : "";
         const amount = colAmount >= 0 ? Number(row[colAmount]) || 0 : 0;
         const price = colPrice >= 0 ? Number(row[colPrice]) || 0 : 0;
-        if (type === "request_count" || type === "calls" || type === "requests") continue;
         const pairKey = keyName + "|||" + date;
-        if (!dailyMap[pairKey]) dailyMap[pairKey] = 0;
-        dailyMap[pairKey] += price * amount;
-      }
-      const sortedDates = Array.from(allDates).sort();
-      // 构建每 key 每日费用数组
-      const dailyCostByKey = {};
-      for (const row of rows) {
-        const keyName = String(row[colName] || "unknown");
-        if (keyName === "unknown") continue;
-        if (!dailyCostByKey[keyName]) {
-          dailyCostByKey[keyName] = { name: keyName, data: {} };
-          for (const d of sortedDates) dailyCostByKey[keyName].data[d] = 0;
+        if (!dailyDetailMap[pairKey]) {
+          dailyDetailMap[pairKey] = { requestCount: 0, missTokens: 0, hitTokens: 0, outTokens: 0, cost: 0 };
+        }
+        var dd = dailyDetailMap[pairKey];
+        var cost = price * amount;
+        if (type === "request_count" || type === "calls" || type === "requests") {
+          dd.requestCount += amount;
+        } else if (type === "input_cache_hit_tokens" || type === "prompt_cache_hit_token" || type === "inputCacheHit") {
+          dd.hitTokens += amount; dd.cost += cost;
+        } else if (type === "input_cache_miss_tokens" || type === "prompt_cache_miss_token" || type === "inputCacheMiss") {
+          dd.missTokens += amount; dd.cost += cost;
+        } else if (type === "output_tokens" || type === "completion_token" || type === "output") {
+          dd.outTokens += amount; dd.cost += cost;
         }
       }
-      for (const [pairKey, cost] of Object.entries(dailyMap)) {
+      const sortedDates = Array.from(allDates).sort();
+      // 构建每 key 每日系列数据
+      var dailySerieMap = {};
+      for (const [pairKey, dd] of Object.entries(dailyDetailMap)) {
         const sep = pairKey.lastIndexOf("|||");
         const k = pairKey.substring(0, sep);
         const d = pairKey.substring(sep + 3);
-        if (dailyCostByKey[k]) dailyCostByKey[k].data[d] = cost;
+        if (!dailySerieMap[k]) {
+          dailySerieMap[k] = { name: k, cost: {}, request: {}, tokens: {}, miss: {}, hit: {} };
+          for (const dt of sortedDates) { dailySerieMap[k].cost[dt] = 0; dailySerieMap[k].request[dt] = 0; dailySerieMap[k].tokens[dt] = 0; dailySerieMap[k].miss[dt] = 0; dailySerieMap[k].hit[dt] = 0; }
+        }
+        dailySerieMap[k].cost[d] = dd.cost;
+        dailySerieMap[k].request[d] = dd.requestCount;
+        dailySerieMap[k].tokens[d] = dd.missTokens + dd.hitTokens + dd.outTokens;
+        dailySerieMap[k].miss[d] = dd.missTokens;
+        dailySerieMap[k].hit[d] = dd.hitTokens;
       }
       const sortedKeys2 = Object.values(keyMap).sort((a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount);
       const keyOrder = sortedKeys2.map((k) => k.key);
       const dailyData = {
         dates: sortedDates,
-        series: keyOrder.filter((k) => dailyCostByKey[k]).map((k) => ({
+        series: keyOrder.filter((k) => dailySerieMap[k]).map((k) => ({
           name: k,
-          data: sortedDates.map((d) => dailyCostByKey[k].data[d] || 0),
+          data: sortedDates.map((d) => dailySerieMap[k].cost[d] || 0),
+        })),
+        requests: keyOrder.filter((k) => dailySerieMap[k]).map((k) => ({
+          name: k,
+          data: sortedDates.map((d) => dailySerieMap[k].request[d] || 0),
+        })),
+        tokens: keyOrder.filter((k) => dailySerieMap[k]).map((k) => ({
+          name: k,
+          data: sortedDates.map((d) => dailySerieMap[k].tokens[d] || 0),
+        })),
+        miss: keyOrder.filter((k) => dailySerieMap[k]).map((k) => ({
+          name: k,
+          data: sortedDates.map((d) => dailySerieMap[k].miss[d] || 0),
+        })),
+        hit: keyOrder.filter((k) => dailySerieMap[k]).map((k) => ({
+          name: k,
+          data: sortedDates.map((d) => dailySerieMap[k].hit[d] || 0),
         })),
       };
 
@@ -5236,6 +5308,30 @@
         nativeBtn.classList.toggle("active", state.nativeContentVisible);
         saveNativeContentVisible();
         toggleNativeContent(state.nativeContentVisible);
+      });
+    }
+
+    // 清除缓存
+    var clearBtn = panel.querySelector(".dsapi-plus-clear-cache-btn");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", function () {
+        if (!confirm("确定清除所有缓存数据？这将重置所有设置并重新加载页面。")) return;
+        var keys = [
+          "dsapi_plus_section_visible",
+          "dsapi_plus_key_table_visible",
+          "dsapi_plus_native_content_visible",
+          "dsapi_plus_group_by_model",
+          "dsapi_plus_auto_refresh",
+          "dsapi_plus_key_detail",
+          "dsapi_plus_key_filter",
+          "dsapi_plus_key_daily_visible",
+          "dsapi_plus_subscriptions",
+          "dsapi_plus_subscription_last_sent",
+        ];
+        for (var ki = 0; ki < keys.length; ki++) {
+          try { localStorage.removeItem(keys[ki]); } catch (e) { /* ignore */ }
+        }
+        location.reload();
       });
     }
 
