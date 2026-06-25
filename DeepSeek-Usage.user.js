@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.24
+// @version      1.11.29
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2388,8 +2388,8 @@
             resolve({ success: true, verified: false, note: "已发送" });
           }
         },
-        onerror: function () { resolve({ success: false, error: "请求失败: 网络错误" }); },
-        ontimeout: function () { resolve({ success: false, error: "请求超时（15秒）" }); },
+        onerror: function () { console.error("[DeepSeek Usage Panel Plus] Webhook 请求失败: 网络错误"); resolve({ success: false, error: "请求失败: 网络错误" }); },
+        ontimeout: function () { console.error("[DeepSeek Usage Panel Plus] Webhook 请求超时"); resolve({ success: false, error: "请求超时（15秒）" }); },
       });
     });
   }
@@ -2635,6 +2635,7 @@
 
   function closeSubscriptionPanel() {
     state.subscriptionPanelVisible = false;
+    if (state._countdownTimer) { clearInterval(state._countdownTimer); state._countdownTimer = 0; }
     const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
     if (overlay) overlay.remove();
   }
@@ -2690,6 +2691,7 @@
             <span>${formatText}</span>
             <span>${scheduleText}</span>
             <span>上次发送: ${lastSentText}</span>
+            <span class="sub-countdown" data-index="${i}">倒计时: --</span>
           </div>
         </div>`;
       }
@@ -2698,6 +2700,58 @@
 
     panel.innerHTML = html;
     return panel;
+  }
+
+  function getNextSendTime(sub) {
+    var now = new Date();
+    switch (sub.scheduleType) {
+      case "interval":
+        if (sub.scheduleInterval <= 0) return null;
+        var last = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
+        if (!last) return null;
+        return new Date(last.getTime() + sub.scheduleInterval);
+      case "daily":
+        var next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sub.scheduleHour || 0, sub.scheduleMinute || 0, 0);
+        if (next <= now) next.setDate(next.getDate() + 1);
+        return next;
+      case "weekly": {
+        var day = sub.scheduleDayOfWeek || 0;
+        var next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sub.scheduleHour || 0, sub.scheduleMinute || 0, 0);
+        while (next.getDay() !== day || next <= now) next.setDate(next.getDate() + 1);
+        return next;
+      }
+      case "monthly": {
+        var dom = sub.scheduleDayOfMonth || 1;
+        var next = new Date(now.getFullYear(), now.getMonth(), dom, sub.scheduleHour || 0, sub.scheduleMinute || 0, 0);
+        if (next <= now) next.setMonth(next.getMonth() + 1);
+        return next;
+      }
+      default: return null;
+    }
+  }
+
+  function updateSubscriptionCountdowns() {
+    var els = document.querySelectorAll(".sub-countdown");
+    if (!els.length) return;
+    var now = new Date();
+    for (var ci = 0; ci < els.length; ci++) {
+      var el = els[ci];
+      var idx = parseInt(el.dataset.index, 10);
+      var sub = state.subscriptions[idx];
+      if (!sub || !sub.enabled) { el.textContent = "未启用"; continue; }
+      var next = getNextSendTime(sub);
+      if (!next) { el.textContent = "倒计时: --"; continue; }
+      var diff = next.getTime() - now.getTime();
+      if (diff <= 0) { el.textContent = "待发送"; continue; }
+      var sec = Math.floor(diff / 1000);
+      var min = Math.floor(sec / 60);
+      var hr = Math.floor(min / 60);
+      sec = sec % 60;
+      min = min % 60;
+      if (hr > 0) { el.textContent = "倒计时: " + hr + "时" + min + "分" + sec + "秒"; }
+      else if (min > 0) { el.textContent = "倒计时: " + min + "分" + sec + "秒"; }
+      else { el.textContent = "倒计时: " + sec + "秒"; }
+    }
   }
 
   function getScheduleLabel(sub) {
@@ -3053,6 +3107,10 @@
         }
       });
     });
+    // 倒计时更新
+    if (state._countdownTimer) clearInterval(state._countdownTimer);
+    state._countdownTimer = setInterval(updateSubscriptionCountdowns, 1000);
+    updateSubscriptionCountdowns();
   }
 
   function bindFormEvents(formEl, panel, editIndex) {
@@ -3129,6 +3187,7 @@
       }
       saveSubscriptions();
       updateSubscribeBtnState();
+      checkSubscriptionSchedule(); // 保存后立即检查是否需要发送
 
       // 重新渲染面板
       const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
@@ -3204,7 +3263,9 @@
 
   function startSubscriptionCheckTimer() {
     stopSubscriptionCheckTimer();
-    state.subscriptionCheckTimer = setInterval(checkSubscriptionSchedule, 60000);
+    // 延迟 500ms 后首次检查，确保页面已就绪
+    setTimeout(function () { checkSubscriptionSchedule(); }, 500);
+    state.subscriptionCheckTimer = setInterval(checkSubscriptionSchedule, 30000);
   }
 
   function stopSubscriptionCheckTimer() {
@@ -3220,12 +3281,20 @@
       if (!sub.enabled) continue;
       const lastSent = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
       if (shouldSendNow(sub, now, lastSent)) {
+        console.log("[DeepSeek Usage Panel Plus] 订阅检查触发:", sub.name, "时间:", now.toLocaleTimeString());
         sendSubscriptionReport(sub).then(result => {
-          sub.lastSentAt = new Date().toISOString();
-          sub.lastSentStatus = result.success ? "success" : "error";
-          state.subscriptionLastSent[sub.id] = sub.lastSentAt;
+          if (result.success) {
+            sub.lastSentAt = new Date().toISOString();
+            sub.lastSentStatus = "success";
+            state.subscriptionLastSent[sub.id] = sub.lastSentAt;
+          } else {
+            console.error("[DeepSeek Usage Panel Plus] 订阅发送失败:", sub.name, result.error);
+          }
           saveSubscriptions();
           saveSubscriptionLastSent();
+        }).catch(function (err) {
+          console.error("[DeepSeek Usage Panel Plus] 订阅发送异常:", sub.name, err);
+          // 发送异常时不记录 lastSent，允许下次重试
         });
       }
     }
