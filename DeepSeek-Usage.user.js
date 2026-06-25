@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.29
+// @version      1.11.50
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -80,9 +80,12 @@
     keyDetailDailyVisible: loadKeyDetailDailyVisible(),
     keyDetailDailyData: null,  // { dates: [], series: [{name, data}] }
 
+    // Key 费用分布图可见性
+    keyDetailChartVisible: loadKeyDetailChartVisible(),
+
     // 订阅功能
     subscriptions: loadSubscriptions(),           // 订阅配置数组
-    subscriptionPanelVisible: false,              // 订阅面板是否可见
+    subscriptionVisible: loadSubscriptionVisible(), // 订阅内嵌面板可见性
     subscriptionLastSent: loadSubscriptionLastSent(), // { subId: ISO时间戳 }
     subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
   };
@@ -115,6 +118,17 @@
     } catch (e) { /* ignore */ }
   }
 
+  function loadSubscriptionVisible() {
+    try { return localStorage.getItem("dsapi_plus_subscription_visible") === "true"; }
+    catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function saveSubscriptionVisible() {
+    try { localStorage.setItem("dsapi_plus_subscription_visible", String(state.subscriptionVisible)); }
+    catch (e) { /* ignore */ }
+  }
+
   function loadKeyDetailDailyVisible() {
     try {
       return localStorage.getItem("dsapi_plus_key_daily_visible") === "true";
@@ -140,6 +154,17 @@
     try {
       localStorage.setItem("dsapi_plus_native_content_visible", String(state.nativeContentVisible));
     } catch (e) { /* ignore */ }
+  }
+
+  function loadKeyDetailChartVisible() {
+    try { return localStorage.getItem("dsapi_plus_key_chart_visible") !== "false"; }
+    catch (e) { /* ignore */ }
+    return true;
+  }
+
+  function saveKeyDetailChartVisible() {
+    try { localStorage.setItem("dsapi_plus_key_chart_visible", String(state.keyDetailChartVisible)); }
+    catch (e) { /* ignore */ }
   }
 
   function saveKeyDetailData() {
@@ -513,6 +538,22 @@
         border-color: #22c55e;
         background: rgba(34, 197, 94, 0.08);
       }
+      /* 所有按钮控件统一样式 */
+      .dsapi-plus-auto-refresh-btn,
+      .dsapi-plus-toggle-section-btn,
+      .dsapi-plus-toggle-key-btn,
+      .dsapi-plus-toggle-native-btn,
+      .dsapi-plus-group-model-btn,
+      .dsapi-plus-daily-btn,
+      .dsapi-plus-key-filter-btn,
+      .dsapi-plus-cost-chart-btn,
+      .dsapi-plus-subscribe-btn,
+      .dsapi-plus-subscribe-create-btn,
+      .dsapi-plus-refresh,
+      .dsapi-plus-clear-cache-btn {
+        min-width: 48px;
+        text-align: center;
+      }
       .dsapi-plus-clear-cache-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
@@ -578,6 +619,32 @@
         color: var(--dsapi-plus-text);
       }
       .dsapi-plus-daily-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .dsapi-plus-cost-chart-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.7;
+        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
+      }
+      .dsapi-plus-cost-chart-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-cost-chart-btn.active {
         opacity: 1;
         color: #22c55e;
         border-color: #22c55e;
@@ -865,6 +932,15 @@
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
       }
+      body.dark .dsapi-plus-cost-chart-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+      }
+      body.dark .dsapi-plus-cost-chart-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
+      }
       body.dark .dsapi-plus-key-filter-btn:hover {
         background: rgba(255, 255, 255, 0.08);
         color: var(--dsapi-plus-text);
@@ -1103,23 +1179,23 @@
       }
       .dsapi-plus-subscribe-create-btn {
         appearance: none;
-        border: 1px dashed var(--dsapi-plus-muted);
-        border-radius: 8px;
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 13px;
-        padding: 10px 16px;
-        width: 100%;
-        margin-bottom: 16px;
+        font-size: 11px;
+        line-height: 18px;
+        padding: 4px 6px;
+        opacity: 0.7;
         transition: opacity 0.15s, background 0.15s, color 0.15s;
+        white-space: nowrap;
       }
       .dsapi-plus-subscribe-create-btn:hover {
         opacity: 1;
-        background: rgba(2, 14, 54, 0.04);
+        background: rgba(2, 14, 54, 0.05);
         color: var(--dsapi-plus-text);
-        border-color: var(--dsapi-plus-text);
       }
       .dsapi-plus-subscribe-item {
         border: 1px solid rgba(2, 14, 54, 0.1);
@@ -1200,6 +1276,13 @@
       .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-preview-btn:hover {
         opacity: 1;
         background: rgba(59, 130, 246, 0.08);
+      }
+      .dsapi-plus-subscribe-inline-content .dsapi-plus-subscribe-panel {
+        width: 100%;
+        max-width: none;
+        box-shadow: none;
+        padding: 0;
+        border: none;
       }
       .dsapi-plus-subscribe-status-success {
         color: #22c55e;
@@ -2634,10 +2717,14 @@
   }
 
   function closeSubscriptionPanel() {
-    state.subscriptionPanelVisible = false;
     if (state._countdownTimer) { clearInterval(state._countdownTimer); state._countdownTimer = 0; }
-    const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
-    if (overlay) overlay.remove();
+    state.subscriptionVisible = false;
+    saveSubscriptionVisible();
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) {
+      var section = panel.querySelector(".dsapi-plus-subscribe-section");
+      if (section) section.style.display = "none";
+    }
   }
 
   function renderSubscriptionPanel() {
@@ -2645,14 +2732,7 @@
     panel.className = "dsapi-plus-subscribe-panel";
     panel.id = "dsapi-plus-subscribe-panel-inner";
 
-    // 头部
-    let html = `<div class="dsapi-plus-subscribe-panel-header">
-      <h2>📬 订阅管理</h2>
-      <button type="button" class="dsapi-plus-subscribe-panel-close" data-action="close">✕</button>
-    </div>`;
-
-    // 新建按钮
-    html += `<button type="button" class="dsapi-plus-subscribe-create-btn" data-action="create">＋ 新建订阅</button>`;
+    let html = "";
 
     // 订阅列表
     const subs = state.subscriptions;
@@ -2691,7 +2771,7 @@
             <span>${formatText}</span>
             <span>${scheduleText}</span>
             <span>上次发送: ${lastSentText}</span>
-            <span class="sub-countdown" data-index="${i}">倒计时: --</span>
+            <span class="sub-countdown" data-index="${i}" style="margin-left:auto;">倒计时: --</span>
           </div>
         </div>`;
       }
@@ -3002,12 +3082,13 @@
         if (!confirm(`确定删除订阅「${sub.name}」？`)) return;
         state.subscriptions.splice(idx, 1);
         saveSubscriptions();
-        // 重新渲染面板
-        const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
-        if (overlay) {
-          const newPanel = renderSubscriptionPanel();
-          overlay.innerHTML = "";
-          overlay.appendChild(newPanel);
+        updateSubscribeBtnState();
+        // 刷新内嵌面板
+        var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
+        if (content) {
+          var newPanel = renderSubscriptionPanel();
+          content.innerHTML = "";
+          content.appendChild(newPanel);
           bindSubscriptionPanelEvents(newPanel);
         }
         // 更新按钮状态
@@ -3179,6 +3260,9 @@
       if (editIndex !== null && editIndex !== undefined && state.subscriptions[editIndex]) {
         // 编辑已有
         Object.assign(state.subscriptions[editIndex], formData);
+        // 编辑后重置发送状态，使新计划生效
+        state.subscriptions[editIndex].lastSentAt = null;
+        state.subscriptions[editIndex].lastSentStatus = null;
       } else {
         // 新建
         formData.id = createSubscriptionId();
@@ -3189,23 +3273,24 @@
       updateSubscribeBtnState();
       checkSubscriptionSchedule(); // 保存后立即检查是否需要发送
 
-      // 重新渲染面板
-      const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
-      if (overlay) {
-        const newPanel = renderSubscriptionPanel();
-        overlay.innerHTML = "";
-        overlay.appendChild(newPanel);
+      // 刷新内嵌面板
+      var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
+      if (content) {
+        var newPanel = renderSubscriptionPanel();
+        content.innerHTML = "";
+        content.appendChild(newPanel);
         bindSubscriptionPanelEvents(newPanel);
       }
     });
 
     // 取消
     formEl.querySelector("[data-action='cancel']")?.addEventListener("click", () => {
-      const overlay = document.getElementById("dsapi-plus-subscribe-overlay");
-      if (overlay) {
-        const newPanel = renderSubscriptionPanel();
-        overlay.innerHTML = "";
-        overlay.appendChild(newPanel);
+      // 取消编辑：刷新内嵌面板
+      var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
+      if (content) {
+        var newPanel = renderSubscriptionPanel();
+        content.innerHTML = "";
+        content.appendChild(newPanel);
         bindSubscriptionPanelEvents(newPanel);
       }
     });
@@ -3254,8 +3339,7 @@
   function updateSubscribeBtnState() {
     const btn = document.querySelector(".dsapi-plus-subscribe-btn");
     if (btn) {
-      const hasActive = getActiveSubscriptionCount() > 0;
-      btn.classList.toggle("active", hasActive);
+      btn.classList.toggle("active", state.subscriptionVisible);
     }
   }
 
@@ -3265,12 +3349,19 @@
     stopSubscriptionCheckTimer();
     // 延迟 500ms 后首次检查，确保页面已就绪
     setTimeout(function () { checkSubscriptionSchedule(); }, 500);
-    state.subscriptionCheckTimer = setInterval(checkSubscriptionSchedule, 30000);
+    // 使用递归 setTimeout 替代 setInterval，避免某次执行异常导致后续检查停止
+    function scheduleNext() {
+      state.subscriptionCheckTimer = setTimeout(function () {
+        try { checkSubscriptionSchedule(); } catch (e) { console.error("[DeepSeek Usage Panel Plus] 订阅检查异常:", e); }
+        scheduleNext();
+      }, 30000);
+    }
+    scheduleNext();
   }
 
   function stopSubscriptionCheckTimer() {
     if (state.subscriptionCheckTimer) {
-      clearInterval(state.subscriptionCheckTimer);
+      clearTimeout(state.subscriptionCheckTimer);
       state.subscriptionCheckTimer = 0;
     }
   }
@@ -3301,8 +3392,8 @@
   }
 
   function shouldSendNow(sub, now, lastSent) {
-    const subMinHour = sub.scheduleHour * 60 + sub.scheduleMinute;
-    const nowMinHour = now.getHours() * 60 + now.getMinutes();
+    var subMinHour = sub.scheduleHour * 60 + sub.scheduleMinute;
+    var nowMinHour = now.getHours() * 60 + now.getMinutes();
 
     switch (sub.scheduleType) {
       case "interval":
@@ -3310,7 +3401,11 @@
         return (now.getTime() - lastSent.getTime()) >= sub.scheduleInterval;
       case "daily":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
-        return nowMinHour >= subMinHour;
+        var shouldSend = nowMinHour >= subMinHour;
+        if (shouldSend) {
+          console.log("[DeepSeek Usage Panel Plus] shouldSendNow=true, sub:", sub.name, "time:", now.toLocaleTimeString(), "schedule:", sub.scheduleHour + ":" + sub.scheduleMinute, "lastSent:", lastSent ? lastSent.toLocaleString() : "null");
+        }
+        return shouldSend;
       case "weekly":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
         return now.getDay() === sub.scheduleDayOfWeek && nowMinHour >= subMinHour;
@@ -3448,26 +3543,42 @@
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
-          <button type="button" class="dsapi-plus-subscribe-btn${getActiveSubscriptionCount() > 0 ? ' active' : ''}">订阅</button>
-          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.requests ? ' active' : ''}" data-section="requests">请求</button>
-          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.tokens ? ' active' : ''}" data-section="tokens">Tokens</button>
-          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存</button>
-          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.composition ? ' active' : ''}" data-section="composition">Token构成</button>
-          <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型</button>
           <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;">自动刷新 ${getAutoRefreshLabel(state.autoRefreshInterval)}</button>
-          <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">${state.nativeContentVisible ? '隐藏原生内容' : '显示原生内容'}</button>
+          <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原生内容</button>
           <button type="button" class="dsapi-plus-clear-cache-btn" style="margin-left:4px;">清除缓存</button>
           <button type="button" class="dsapi-plus-refresh">刷新</button>
         </div>
       </div>
 
+      <div class="dsapi-plus-subscribe-section" style="margin-top:16px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="font-size:14px;font-weight:600;flex-shrink:0;">📬 订阅管理</div>
+          <span style="font-size:11px;color:var(--dsapi-plus-muted);flex-shrink:0;">${getActiveSubscriptionCount()} 个活跃订阅</span>
+          <div style="flex:1;"></div>
+          <button type="button" class="dsapi-plus-subscribe-btn${state.subscriptionVisible ? ' active' : ''}">订阅</button>
+          <button type="button" class="dsapi-plus-subscribe-create-btn" data-action="create">新建订阅</button>
+        </div>
+        <div class="dsapi-plus-subscribe-inline-content"></div>
+      </div>
+
       <div class="dsapi-plus-body">
         <div class="dsapi-plus-summary">
+          <div class="dsapi-plus-section-head" style="margin-bottom:12px;width:100%;">
+            <div class="dsapi-plus-section-title">💰 费用摘要</div>
+            <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.requests ? ' active' : ''}" data-section="requests">请求</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.tokens ? ' active' : ''}" data-section="tokens">Tokens</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.composition ? ' active' : ''}" data-section="composition">Token构成</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型</button>
+            </div>
+          </div>
           ${summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "")}
           ${summaryItem("当月费用", monthCostText, "", costDetail)}
           ${summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
           ${summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail)}
           ${isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : ""}
+          ${summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "")}
         </div>
 
         <div class="dsapi-plus-chart-grid">
@@ -3523,7 +3634,7 @@
 
         <div class="dsapi-plus-section">
           <div class="dsapi-plus-section-head">
-            <div class="dsapi-plus-section-title">Key 明细</div>
+            <div class="dsapi-plus-section-title">🔑 Key 明细</div>
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
@@ -3538,12 +3649,13 @@
                   <div class="dsapi-plus-filter-list"></div>
                 </div>
               </div>
-              <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">${state.keyTableVisible ? '隐藏表格详情' : '显示表格详情'}</button>
-              <button type="button" class="dsapi-plus-daily-btn${state.keyDetailDailyVisible ? ' active' : ''}">${state.keyDetailDailyVisible ? '隐藏每日详情' : '显示每日详情'}</button>
+              <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">表格详情</button>
+              <button type="button" class="dsapi-plus-cost-chart-btn${state.keyDetailChartVisible ? ' active' : ''}">费用分布</button>
+              <button type="button" class="dsapi-plus-daily-btn${state.keyDetailDailyVisible ? ' active' : ''}">每日详情</button>
             </div>
           </div>
           ${sortedKeys.length ? renderKeyTable(sortedKeys, cost, state.keyTableVisible) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
-          <div class="dsapi-plus-key-chart" style="margin-top:8px;">
+          <div class="dsapi-plus-key-chart" style="display:${state.keyDetailChartVisible !== false ? '' : 'none'};margin-top:8px;">
             ${chartHeading("Key 费用分布", "")}
             <div class="dsapi-plus-chart-frame" style="height:${keyChartHeight}px;">
               ${sortedKeys.length ? `<div class="dsapi-plus-chart" style="height:${keyChartHeight}px;" data-dsapi-chart="keyCost"></div>` : '<div class="dsapi-plus-message">暂无 Key 费用数据。</div>'}
@@ -3578,6 +3690,7 @@
       averageCostPerMillion,
       averageCostDetail,
       estimatedAvailableTokens,
+      walletCnyBalance,
       updateTime,
       html,
     };
@@ -3601,6 +3714,20 @@
     initCharts(panel, panelData);
     // 恢复记忆的 Key 明细数据
     restoreKeyDetailData(panel);
+    // 初始化订阅管理内嵌面板
+    var subContent = panel.querySelector(".dsapi-plus-subscribe-inline-content");
+    if (subContent) {
+      if (state.subscriptionVisible) {
+        subContent.style.display = "";
+        if (!subContent.children.length) {
+          var subPanel = renderSubscriptionPanel();
+          subContent.appendChild(subPanel);
+          bindSubscriptionPanelEvents(subPanel);
+        }
+      } else {
+        subContent.style.display = "none";
+      }
+    }
     // 全量重渲染后恢复原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
   }
@@ -3948,7 +4075,7 @@
   }
 
   function updatePanelIncremental(panel, panelData) {
-    const { period, amount, summary, cost, monthlyCostText, monthCostText, todayCostText, todayCostDetail, costDetail, usageDetail, sortedModels, sortedKeys, tokenTotal, isCurrentPeriod, averageCostLabel, averageCostPerMillion, averageCostDetail, estimatedAvailableTokens, updateTime } = panelData;
+    const { period, amount, summary, cost, monthlyCostText, monthCostText, todayCostText, todayCostDetail, costDetail, usageDetail, sortedModels, sortedKeys, tokenTotal, isCurrentPeriod, averageCostLabel, averageCostPerMillion, averageCostDetail, estimatedAvailableTokens, walletCnyBalance, updateTime } = panelData;
 
     const periodSelect = panel.querySelector(".dsapi-plus-period-select");
     const status = panel.querySelector(".dsapi-plus-status");
@@ -3958,11 +4085,13 @@
     const summaryEl = panel.querySelector(".dsapi-plus-summary");
     if (summaryEl) {
       summaryEl.innerHTML =
+        '<div class="dsapi-plus-section-head" style="margin-bottom:12px;width:100%;"><div class="dsapi-plus-section-title">💰 费用摘要</div></div>' +
         summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "") +
         summaryItem("当月费用", monthCostText, "", costDetail) +
         summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
         summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail) +
-        (isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : "");
+        (isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : "") +
+        summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "");
     }
 
     const headingValues = panel.querySelectorAll(".dsapi-plus-chart-heading-value");
@@ -5142,7 +5271,12 @@
     if (!panel || !panel.parentNode) return;
     const siblings = Array.from(panel.parentNode.children);
     const idx = siblings.indexOf(panel);
+    // 隐藏面板之后的所有原生内容
     for (let i = idx + 1; i < siblings.length; i++) {
+      siblings[i].style.display = show ? "" : "none";
+    }
+    // 隐藏面板之前的内容（页面顶部：用量信息、充值余额等）
+    for (let i = 0; i < idx; i++) {
       siblings[i].style.display = show ? "" : "none";
     }
   }
@@ -5194,7 +5328,6 @@
     if (toggleBtn) {
       toggleBtn.addEventListener("click", () => {
         state.keyTableVisible = !state.keyTableVisible;
-        toggleBtn.textContent = state.keyTableVisible ? "隐藏表格详情" : "显示表格详情";
         toggleBtn.classList.toggle("active", state.keyTableVisible);
         saveKeyTableVisible();
         const keySection = panel.querySelector(".dsapi-plus-section:last-child");
@@ -5311,7 +5444,6 @@
     if (dailyBtn) {
       dailyBtn.addEventListener("click", () => {
         state.keyDetailDailyVisible = !state.keyDetailDailyVisible;
-        dailyBtn.textContent = state.keyDetailDailyVisible ? "隐藏每日详情" : "显示每日详情";
         dailyBtn.classList.toggle("active", state.keyDetailDailyVisible);
         saveKeyDetailDailyVisible();
         const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
@@ -5338,6 +5470,21 @@
               });
             }
           }
+        }
+        for (const { instance } of state.charts) instance?.resize();
+      });
+    }
+
+    // Key 费用分布图可见性
+    const costChartBtn = panel.querySelector(".dsapi-plus-cost-chart-btn");
+    if (costChartBtn) {
+      costChartBtn.addEventListener("click", () => {
+        state.keyDetailChartVisible = !state.keyDetailChartVisible;
+        costChartBtn.classList.toggle("active", state.keyDetailChartVisible);
+        saveKeyDetailChartVisible();
+        const chartWrap = panel.querySelector(".dsapi-plus-key-chart");
+        if (chartWrap) {
+          chartWrap.style.display = state.keyDetailChartVisible ? "" : "none";
         }
         for (const { instance } of state.charts) instance?.resize();
       });
@@ -5371,7 +5518,6 @@
     if (nativeBtn) {
       nativeBtn.addEventListener("click", () => {
         state.nativeContentVisible = !state.nativeContentVisible;
-        nativeBtn.textContent = state.nativeContentVisible ? "隐藏原生内容" : "显示原生内容";
         nativeBtn.classList.toggle("active", state.nativeContentVisible);
         saveNativeContentVisible();
         toggleNativeContent(state.nativeContentVisible);
@@ -5448,7 +5594,58 @@
     // 订阅按钮点击 → 打开订阅面板
     const subscribeBtn = panel.querySelector(".dsapi-plus-subscribe-btn");
     if (subscribeBtn) {
-      subscribeBtn.addEventListener("click", openSubscriptionPanel);
+      subscribeBtn.addEventListener("click", function () {
+        state.subscriptionVisible = !state.subscriptionVisible;
+        saveSubscriptionVisible();
+        subscribeBtn.classList.toggle("active", state.subscriptionVisible);
+        var content = panel.querySelector(".dsapi-plus-subscribe-inline-content");
+        if (content) {
+          if (state.subscriptionVisible) {
+            content.style.display = "";
+            if (!content.children.length) {
+              var subPanel = renderSubscriptionPanel();
+              content.appendChild(subPanel);
+              bindSubscriptionPanelEvents(subPanel);
+            }
+          } else {
+            content.style.display = "none";
+          }
+        }
+      });
+    }
+
+    // 订阅管理：新建订阅按钮（在标题行，不在内嵌面板内）
+    var outerCreateBtn = panel.querySelector(".dsapi-plus-subscribe-section [data-action='create']");
+    if (outerCreateBtn) {
+      outerCreateBtn.addEventListener("click", function () {
+        var inlineContent = panel.querySelector(".dsapi-plus-subscribe-inline-content");
+        if (!inlineContent) return;
+        // 确保订阅项可见
+        if (!state.subscriptionVisible) {
+          state.subscriptionVisible = true;
+          saveSubscriptionVisible();
+          var sb = panel.querySelector(".dsapi-plus-subscribe-btn");
+          if (sb) sb.classList.add("active");
+          inlineContent.style.display = "";
+        }
+        if (!inlineContent.children.length) {
+          var subPanel = renderSubscriptionPanel();
+          inlineContent.appendChild(subPanel);
+          bindSubscriptionPanelEvents(subPanel);
+        }
+        // 直接在内嵌面板中触发新建：隐藏列表显示表单
+        var list = inlineContent.querySelector(".dsapi-plus-subscribe-list");
+        var noData = inlineContent.querySelector("div[style*='text-align: center']");
+        if (list) list.style.display = "none";
+        if (noData) noData.style.display = "none";
+        var existingForm = inlineContent.querySelector(".dsapi-plus-subscribe-form");
+        if (existingForm) { existingForm.remove(); return; }
+        var formHtml = renderSubscriptionForm(null, null);
+        var insertTarget = inlineContent.querySelector(".dsapi-plus-subscribe-list, .dsapi-plus-subscribe-form") || inlineContent;
+        insertTarget.insertAdjacentHTML("beforebegin", formHtml);
+        var formEl = inlineContent.querySelector(".dsapi-plus-subscribe-form");
+        if (formEl) bindFormEvents(formEl, inlineContent, null);
+      });
     }
   }
 
