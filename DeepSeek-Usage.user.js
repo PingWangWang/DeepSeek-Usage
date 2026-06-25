@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.50
+// @version      1.11.54
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2792,12 +2792,24 @@
         return new Date(last.getTime() + sub.scheduleInterval);
       case "daily":
         var next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sub.scheduleHour || 0, sub.scheduleMinute || 0, 0);
-        if (next <= now) next.setDate(next.getDate() + 1);
+        // 如果今天已过去发送时间且尚未成功发送，返回 now（显示待发送）
+        if (next <= now) {
+          var last = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
+          if (!last || last.toDateString() !== now.toDateString()) return now;
+          next.setDate(next.getDate() + 1);
+        }
         return next;
       case "weekly": {
         var day = sub.scheduleDayOfWeek || 0;
         var next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sub.scheduleHour || 0, sub.scheduleMinute || 0, 0);
-        while (next.getDay() !== day || next <= now) next.setDate(next.getDate() + 1);
+        // 如果本周已过去发送时间且尚未成功发送，返回 now
+        while (next.getDay() !== day || next <= now) {
+          if (next <= now) {
+            var last = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
+            if (!last || last.toDateString() !== now.toDateString()) return now;
+          }
+          next.setDate(next.getDate() + 1);
+        }
         return next;
       }
       case "monthly": {
@@ -2822,7 +2834,10 @@
       var next = getNextSendTime(sub);
       if (!next) { el.textContent = "倒计时: --"; continue; }
       var diff = next.getTime() - now.getTime();
-      if (diff <= 0) { el.textContent = "待发送"; continue; }
+      var diff = next.getTime() - now.getTime();
+      var diff = next.getTime() - now.getTime();
+      // 待发送（计划时间已过或即将到来且尚未成功发送）
+      if (diff < 3000) { el.textContent = "待发送"; continue; }
       var sec = Math.floor(diff / 1000);
       var min = Math.floor(sec / 60);
       var hr = Math.floor(min / 60);
@@ -3263,6 +3278,8 @@
         // 编辑后重置发送状态，使新计划生效
         state.subscriptions[editIndex].lastSentAt = null;
         state.subscriptions[editIndex].lastSentStatus = null;
+        delete state.subscriptionLastSent[state.subscriptions[editIndex].id];
+        saveSubscriptionLastSent();
       } else {
         // 新建
         formData.id = createSubscriptionId();
