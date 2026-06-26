@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.54
+// @version      1.11.64
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2284,7 +2284,7 @@
 
     return {
       month: period || (now.getUTCFullYear() + "-" + (now.getUTCMonth() + 1)),
-      generatedAt: now.toISOString(),
+      generatedAt: new Date(now.getTime() + 8 * 3600000).toISOString().replace("T", " ").substring(0, 19) + " (北京时间)",
       summary: { totalCost: totalCost, totalUsage: totalUsage, todayCost: todayTotalCost, avgCost: avgCost, balance: walletCnyBalance, cacheHitRate: overallCacheHitRate },
       tokenComposition: { inputMiss: inputMiss, inputHit: inputHit, output: output },
       costComposition: { costMiss: costMiss, costHit: costHit, costOut: costOut },
@@ -2297,64 +2297,69 @@
     if (!data) return "暂无数据";
     const lines = [];
     lines.push("# 📊 DeepSeek 用量报告");
-    lines.push(`> 订阅: ${sub.name} ｜ 数据月份: ${data.month}`);
-    lines.push(`> 生成时间: ${data.generatedAt}\n`);
+    lines.push(`> 订阅: ${sub.name} ｜ 数据月份: ${data.month} ｜ 生成时间: ${data.generatedAt}\n`);
 
     if (sub.contentOptions.summary) {
       lines.push("## 💰 费用摘要");
-      lines.push("- **当日费用**: " + formatCnyAmount(data.summary.todayCost));
-      lines.push("- **当月总费用**: " + formatCnyAmount(data.summary.totalCost) + " (用量: " + formatInteger(data.summary.totalUsage) + " Tokens)");
-      lines.push("- **当月平均费用**: " + formatCnyAmount(data.summary.avgCost) + "/1M tokens");
-      lines.push("- **钱包余额**: " + formatCnyAmount(data.summary.balance) + "\n");
+      var sumData = data.summary;
+      lines.push("| 当日费用 | 当月费用 | 钱包余额 |");
+      lines.push("|---------|---------|---------|");
+      lines.push("| " + formatCnyAmount(sumData.todayCost) + " | " + formatCnyAmount(sumData.totalCost) + " | " + formatCnyAmount(sumData.balance) + " |");
+      if (sub.contentOptions.modelDetail && data.costComposition) {
+        var cc = data.costComposition;
+        lines.push("| 未缓存费用 | 缓存命中费用 | 输出费用 |");
+        lines.push("|-----------|-------------|---------|");
+        lines.push("| " + formatCnyAmount(cc.costMiss) + " | " + formatCnyAmount(cc.costHit) + " | " + formatCnyAmount(cc.costOut) + " |");
+      }
+      lines.push("");
     }
 
     if (sub.contentOptions.tokenComposition || sub.contentOptions.cacheHitRate) {
       var tc = data.tokenComposition;
       var totalTokens = tc.inputMiss + tc.inputHit + tc.output;
-      lines.push("## 📈 Token 构成 & 缓存命中率");
+      lines.push("## 📈 Token 构成");
       if (totalTokens > 0) {
         var missPct = (tc.inputMiss / totalTokens * 100).toFixed(1);
         var hitPct = (tc.inputHit / totalTokens * 100).toFixed(1);
         var outPct = (tc.output / totalTokens * 100).toFixed(1);
         var cr = data.summary.cacheHitRate.toFixed(1);
-        lines.push("- **输入未缓存**: " + formatInteger(tc.inputMiss) + " Tokens (" + missPct + "%)");
-        lines.push("- **输入缓存命中**: " + formatInteger(tc.inputHit) + " Tokens (" + hitPct + "%)");
-        lines.push("- **输出**: " + formatInteger(tc.output) + " Tokens (" + outPct + "%)");
-        lines.push("- **缓存命中率**: " + cr + "%\n");
+        lines.push("| 类型 | 数量 | 命中率 |");
+        lines.push("|------|------|--------|");
+        lines.push("| 输入未缓存 | " + formatInteger(tc.inputMiss) + " | — |");
+        lines.push("| 缓存命中 | " + formatInteger(tc.inputHit) + " | " + hitPct + "% |");
+        lines.push("| 输出 | " + formatInteger(tc.output) + " | — |");
+        lines.push("| 总计 | " + formatInteger(totalTokens) + " | " + cr + "% |");
+        lines.push("");
       } else {
         lines.push("- 暂无 Token 数据\n");
       }
     }
 
-    if (sub.contentOptions.keyDetail && data.todayKeys && data.todayKeys.length) {
+    if (sub.contentOptions.keyDetail && data.todayKeys) {
       lines.push("## 🔑 当日 Key 明细 (Top " + Math.min(data.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ")");
-      lines.push("| Key | 请求数 | 总Token | 缓存命中率 | 今日费用 |");
-      lines.push("|-----|--------|---------|------------|----------|");
-      for (var _ki = 0; _ki < data.todayKeys.length; _ki++) {
-        var tk = data.todayKeys[_ki];
-        var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
-        lines.push("| " + (tk.key || "未知") + " | " + formatInteger(tk.requestCount) + " | " + formatInteger(tk.totalTokens) + " | " + crStr + " | " + formatCnyAmount(tk.todayCost) + " |");
+      lines.push("| Key | 总Token | 缓存命中率 | 今日费用 |");
+      lines.push("|-----|---------|------------|----------|");
+      if (data.todayKeys.length) {
+        for (var _ki = 0; _ki < data.todayKeys.length; _ki++) {
+          var tk = data.todayKeys[_ki];
+          var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
+          lines.push("| " + (tk.key || "未知") + " | " + formatInteger(tk.totalTokens) + " | " + crStr + " | " + formatCnyAmount(tk.todayCost) + " |");
+        }
+      } else {
+        lines.push("| — | — | — | — |");
       }
       lines.push("");
     }
 
     if (sub.contentOptions.keyDetail && data.monthKeys && data.monthKeys.length) {
       lines.push("## 🔑 Key 月度总明细 (Top " + data.monthKeys.length + ")");
-      lines.push("| Key | 请求数 | 总Token数 | 缓存命中率 | 总费用 |");
-      lines.push("|-----|--------|-----------|------------|--------|");
+      lines.push("| Key | 总Token数 | 缓存命中率 | 总费用 |");
+      lines.push("|-----|-----------|------------|--------|");
       for (var _kj = 0; _kj < data.monthKeys.length; _kj++) {
         var item = data.monthKeys[_kj];
-        lines.push("| " + (item.key || "未知") + " | " + formatInteger(item.requestCount) + " | " + formatInteger(item.totalTokens) + " | " + (item.cacheHitRate ? item.cacheHitRate.toFixed(1) + "%" : "-") + " | " + formatCnyAmount(item.totalCost) + " |");
+        lines.push("| " + (item.key || "未知") + " | " + formatInteger(item.totalTokens) + " | " + (item.cacheHitRate ? item.cacheHitRate.toFixed(1) + "%" : "-") + " | " + formatCnyAmount(item.totalCost) + " |");
       }
       lines.push("");
-    }
-
-    if (sub.contentOptions.modelDetail && data.costComposition) {
-      lines.push("## 📊 费用构成");
-      const { costMiss, costHit, costOut } = data.costComposition;
-      lines.push(`- **输入未缓存费用**: ${formatCnyAmount(costMiss)}`);
-      lines.push(`- **输入缓存命中费用**: ${formatCnyAmount(costHit)}`);
-      lines.push(`- **输出费用**: ${formatCnyAmount(costOut)}\n`);
     }
 
     lines.push("---\n");
@@ -2593,42 +2598,47 @@
 
     // 构建报告 HTML（与 Markdown 内容对应）
     let html = `<h1 style="font-size: 20px; margin: 0 0 4px;">📊 DeepSeek 用量报告</h1>`;
-    html += `<p style="color: #888; font-size: 12px; margin: 0 0 16px;">订阅: ${escapeHtml(sub.name)} ｜ 数据月份: ${reportData.month}<br>生成时间: ${reportData.generatedAt}</p>`;
+    html += `<p style="color: #888; font-size: 12px; margin: 0 0 16px;">订阅: ${escapeHtml(sub.name)} ｜ 数据月份: ${reportData.month} ｜ 生成时间: ${reportData.generatedAt}</p>`;
 
     if (sub.contentOptions.summary) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">💰 费用摘要</h2>';
-      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px;"><tr>';
-      html += summaryCell("当日费用", formatCnyAmount(reportData.summary.todayCost));
-      html += summaryCell("当月总费用", formatCnyAmount(reportData.summary.totalCost));
-      html += summaryCell("平均费用", formatCnyAmount(reportData.summary.avgCost) + "/1M");
-      html += summaryCell("钱包余额", formatCnyAmount(reportData.summary.balance));
-      html += '</tr></table>';
+      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px;">';
+      html += '<tr>' + summaryCell("当日费用", formatCnyAmount(reportData.summary.todayCost)) + summaryCell("当月费用", formatCnyAmount(reportData.summary.totalCost)) + summaryCell("钱包余额", formatCnyAmount(reportData.summary.balance)) + '</tr>';
+      if (sub.contentOptions.modelDetail && reportData.costComposition) {
+        html += '<tr>' + summaryCell("未缓存费用", formatCnyAmount(reportData.costComposition.costMiss)) + summaryCell("缓存命中费用", formatCnyAmount(reportData.costComposition.costHit)) + summaryCell("输出费用", formatCnyAmount(reportData.costComposition.costOut)) + '</tr>';
+      }
+      html += '</table>';
     }
 
     if (sub.contentOptions.tokenComposition || sub.contentOptions.cacheHitRate) {
       var scr_total = reportData.tokenComposition.inputMiss + reportData.tokenComposition.inputHit + reportData.tokenComposition.output;
-      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">📈 Token 构成 & 缓存命中率</h2>';
+      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">📈 Token 构成</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">类型</th><th style="padding:6px 8px; text-align:right;">数量</th><th style="padding:6px 8px; text-align:right;">占比</th></tr>';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">类型</th><th style="padding:6px 8px; text-align:right;">数量</th><th style="padding:6px 8px; text-align:right;">命中率</th></tr>';
       if (scr_total > 0) {
-        html += scrRow("输入未缓存", reportData.tokenComposition.inputMiss, scr_total);
-        html += scrRow("输入缓存命中", reportData.tokenComposition.inputHit, scr_total);
-        html += scrRow("输出", reportData.tokenComposition.output, scr_total);
+        var missPct2 = (reportData.tokenComposition.inputMiss / scr_total * 100).toFixed(1);
+        var hitPct2 = (reportData.tokenComposition.inputHit / scr_total * 100).toFixed(1);
+        var outPct2 = (reportData.tokenComposition.output / scr_total * 100).toFixed(1);
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">输入未缓存</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(reportData.tokenComposition.inputMiss) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">—</td></tr>';
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">缓存命中</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(reportData.tokenComposition.inputHit) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + hitPct2 + '%</td></tr>';
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">输出</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(reportData.tokenComposition.output) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">—</td></tr>';
+        html += '<tr style="font-weight:600;"><td style="padding:4px 8px; border-top:1px solid #eee;">总计</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(scr_total) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + reportData.summary.cacheHitRate.toFixed(1) + '%</td></tr>';
       }
       html += '</table>';
-      if (scr_total > 0) {
-        html += '<p style="font-size: 12px; color: #888; margin: 6px 0;">缓存命中率: <strong>' + reportData.summary.cacheHitRate.toFixed(1) + '%</strong></p>';
-      }
     }
 
-    if (sub.contentOptions.keyDetail && reportData.todayKeys && reportData.todayKeys.length) {
-      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 当日 Key 明细 (Top ' + reportData.todayKeys.length + ')</h2>';
+    if (sub.contentOptions.keyDetail && reportData.todayKeys) {
+      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 当日 Key 明细 (Top ' + Math.min(reportData.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ')</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">请求数</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
-      for (var _kt = 0; _kt < reportData.todayKeys.length; _kt++) {
-        var tk = reportData.todayKeys[_kt];
-        var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(tk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.requestCount) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(tk.todayCost) + '</td></tr>';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
+      if (reportData.todayKeys.length) {
+        for (var _kt = 0; _kt < reportData.todayKeys.length; _kt++) {
+          var tk = reportData.todayKeys[_kt];
+          var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
+          html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(tk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(tk.todayCost) + '</td></tr>';
+        }
+      } else {
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee; text-align:center;" colspan="4">今日暂无数据</td></tr>';
       }
       html += '</table>';
     }
@@ -2636,22 +2646,13 @@
     if (sub.contentOptions.keyDetail && reportData.monthKeys && reportData.monthKeys.length) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 Key 月度总明细 (Top ' + reportData.monthKeys.length + ')</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">请求数</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
       for (var _km = 0; _km < reportData.monthKeys.length; _km++) {
         var mk = reportData.monthKeys[_km];
         var crStr = mk.cacheHitRate ? mk.cacheHitRate.toFixed(1) + "%" : "-";
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(mk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.requestCount) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(mk.totalCost) + '</td></tr>';
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(mk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(mk.totalCost) + '</td></tr>';
       }
       html += '</table>';
-    }
-
-    if (sub.contentOptions.modelDetail) {
-      html += `<h2 style="font-size: 15px; margin: 16px 0 8px;">📊 费用构成</h2>`;
-      html += `<p style="font-size: 12px;">`;
-      html += `输入未缓存: ${formatCnyAmount(reportData.costComposition.costMiss)} ｜ `;
-      html += `输入缓存命中: ${formatCnyAmount(reportData.costComposition.costHit)} ｜ `;
-      html += `输出: ${formatCnyAmount(reportData.costComposition.costOut)}`;
-      html += `</p>`;
     }
 
     html += `<hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;">`;
