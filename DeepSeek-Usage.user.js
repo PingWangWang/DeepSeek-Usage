@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.64
+// @version      1.11.66
 // @description  用量页增强仪表盘：订阅推送、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2125,6 +2125,7 @@
       scheduleDayOfWeek: 1,
       scheduleDayOfMonth: 1,
       contentFormat: "markdown",
+    imgbbApiKey: "",
       contentOptions: {
         summary: true,
         tokenComposition: true,
@@ -2375,14 +2376,23 @@
 
     let markdown;
     if (sub.contentFormat === "screenshot") {
-      const screenshotResult = await captureReportScreenshot(sub, reportData);
-      if (!screenshotResult.success) {
-        // 截图失败降级到 Markdown
-        markdown = buildMarkdownReport(sub, reportData);
-        return sendReportText(sub, markdown);
+      if (sub.imgbbApiKey && sub.imgbbApiKey.trim()) {
+        // 截图 + ImgBB 上传
+        const screenshotResult = await captureReportScreenshot(sub, reportData);
+        if (screenshotResult.success) {
+          const uploadResult = await uploadScreenshot(screenshotResult.imageBlob, sub.imgbbApiKey);
+          if (uploadResult.success) {
+            // 截图模式：只发送截图，不附带 Markdown 文本
+            return sendReportText(sub, "![](" + uploadResult.url + ")");
+          }
+          console.error("[DeepSeek Usage Panel Plus] 截图上传失败:", uploadResult.error);
+        } else {
+          console.error("[DeepSeek Usage Panel Plus] 截图失败:", screenshotResult.error);
+        }
       }
-      // 发送截图（不展示预览）
-      return sendReportImage(sub, screenshotResult.imageBlob, screenshotResult.imageUrl);
+      // 截图失败或无 API Key → 降级到 Markdown
+      markdown = buildMarkdownReport(sub, reportData);
+      return sendReportText(sub, markdown);
     }
 
     markdown = buildMarkdownReport(sub, reportData);
@@ -2677,6 +2687,25 @@
     }
   }
 
+  // 上传截图到 ImgBB
+  async function uploadScreenshot(imageBlob, apiKey) {
+    try {
+      var formData = new FormData();
+      formData.append("image", imageBlob, "report.png");
+      var resp = await fetch("https://api.imgbb.com/1/upload?key=" + encodeURIComponent(apiKey), {
+        method: "POST",
+        body: formData,
+      });
+      var data = await resp.json();
+      if (data.success) {
+        return { success: true, url: data.data.url };
+      }
+      return { success: false, error: (data.error && data.error.message) || "ImgBB 上传失败" };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
   function loadHtml2Canvas() {
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
@@ -2938,6 +2967,18 @@
           <option value="markdown" ${s.contentFormat === "markdown" ? "selected" : ""}>Markdown 文本</option>
           <option value="screenshot" ${s.contentFormat === "screenshot" ? "selected" : ""}>截图</option>
         </select>
+      </div>
+    </div>`;
+
+    // ImgBB API Key（截图模式需要）
+    const imgbbDisplay = s.contentFormat === "screenshot" ? "" : "display:none;";
+    html += `<div id="sub-form-imgbb-group" style="${imgbbDisplay}">
+      <div class="dsapi-plus-subscribe-form-row">
+        <div class="dsapi-plus-subscribe-form-label">ImgBB Key</div>
+        <div class="dsapi-plus-subscribe-form-control">
+          <input type="text" id="sub-form-imgbb-key" value="${escapeHtml(s.imgbbApiKey || '')}" placeholder="在 imgbb.com 注册获取 API Key" style="width:100%;">
+          <div style="font-size:10px;color:var(--dsapi-plus-muted);margin-top:2px;">截图模式需要配置 ImgBB API Key，否则自动降级为 Markdown 文本</div>
+        </div>
       </div>
     </div>`;
 
@@ -3267,6 +3308,15 @@
       stypeSelect.addEventListener("change", handleScheduleChange);
     }
 
+    // 内容格式切换 → 显示/隐藏 ImgBB Key
+    var formatSelect = formEl.querySelector("#sub-form-format");
+    if (formatSelect) {
+      formatSelect.addEventListener("change", function () {
+        var imgbbGroup = formEl.querySelector("#sub-form-imgbb-group");
+        if (imgbbGroup) imgbbGroup.style.display = formatSelect.value === "screenshot" ? "" : "none";
+      });
+    }
+
     // 保存
     formEl.querySelector("[data-action='save']")?.addEventListener("click", () => {
       const formData = collectFormData(formEl);
@@ -3332,6 +3382,7 @@
       webhookUrl: getName("#sub-form-webhook-url"),
       webhookSecret: getName("#sub-form-webhook-secret"),
       contentFormat: getName("#sub-form-format"),
+      imgbbApiKey: getName("#sub-form-imgbb-key"),
       keyFilterMode: getName("#sub-form-key-mode"),
       selectedKeys: getChecked("#sub-form-keys input[type='checkbox']"),
       scheduleType: stype,
