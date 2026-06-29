@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.68
+// @version      1.11.69
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3435,13 +3435,17 @@
     }
   }
 
-  function checkSubscriptionSchedule() {
+  async function checkSubscriptionSchedule() {
     const now = new Date();
     for (const sub of state.subscriptions) {
       if (!sub.enabled) continue;
       const lastSent = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
       if (shouldSendNow(sub, now, lastSent)) {
         console.log("[DeepSeek Usage Panel Plus] 订阅检查触发:", sub.name, "时间:", now.toLocaleTimeString());
+        // 发送前先刷新 Key 明细数据
+        try {
+          await fetchKeyDetailFromExport(getSelectedPeriod(), new AbortController().signal);
+        } catch (e) { /* 刷新失败不影响发送，使用已有数据 */ }
         sendSubscriptionReport(sub).then(result => {
           if (result.success) {
             sub.lastSentAt = new Date().toISOString();
@@ -3799,6 +3803,10 @@
     }
     // 全量重渲染后恢复原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
+    // 异步刷新 Key 明细（使用当前选中月份）
+    var period = getSelectedPeriod();
+    var controller = new AbortController();
+    fetchKeyDetailFromExport(period, controller.signal).catch(function () {});
   }
 
   function restoreKeyDetailData(panel) {
