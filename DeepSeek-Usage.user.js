@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.77
+// @version      1.11.78
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2990,7 +2990,7 @@
     html += `<div class="dsapi-plus-subscribe-form-row">
       <div class="dsapi-plus-subscribe-form-label">接收方式</div>
       <div class="dsapi-plus-subscribe-form-control">
-        <select id="sub-form-method">
+        <select id="sub-form-method" onchange="var g=this.closest('.dsapi-plus-subscribe-form').querySelector('#sub-form-webhook-group');if(g)g.style.display=this.value==='webhook'?'':'none';">
           <option value="webhook" ${s.receiveMethod === "webhook" ? "selected" : ""}>Webhook 推送</option>
           <option value="clipboard" ${s.receiveMethod === "clipboard" ? "selected" : ""}>复制到剪贴板</option>
           <option value="panel" ${s.receiveMethod === "panel" ? "selected" : ""}>面板内预览</option>
@@ -3029,7 +3029,7 @@
     html += `<div class="dsapi-plus-subscribe-form-row">
       <div class="dsapi-plus-subscribe-form-label">内容格式</div>
       <div class="dsapi-plus-subscribe-form-control">
-        <select id="sub-form-format">
+        <select id="sub-form-format" onchange="var g=this.closest('.dsapi-plus-subscribe-form').querySelector('#sub-form-imgbb-group');if(g)g.style.display=this.value==='screenshot'?'':'none';">
           <option value="markdown" ${s.contentFormat === "markdown" ? "selected" : ""}>Markdown 文本</option>
           <option value="screenshot" ${s.contentFormat === "screenshot" ? "selected" : ""}>截图</option>
         </select>
@@ -3053,7 +3053,7 @@
     html += `<div class="dsapi-plus-subscribe-form-row">
       <div class="dsapi-plus-subscribe-form-label">Key 筛选</div>
       <div class="dsapi-plus-subscribe-form-control">
-        <select id="sub-form-key-mode">
+        <select id="sub-form-key-mode" onchange="var g=this.closest('.dsapi-plus-subscribe-form').querySelector('#sub-form-key-select-group');if(g)g.style.display=this.value==='selected'?'':'none';">
           <option value="all" ${s.keyFilterMode === "all" ? "selected" : ""}>全部 Key</option>
           <option value="selected" ${s.keyFilterMode === "selected" ? "selected" : ""}>选择特定 Key</option>
         </select>
@@ -3083,13 +3083,13 @@
         <div class="dsapi-plus-subscribe-schedule-row" id="sub-form-schedule">`;
 
     if (s.scheduleType === "interval") {
-      html += `<select id="sub-form-stype">
+      html += `<select id="sub-form-stype" onchange="var p=document.getElementById('${PANEL_ID}');if(p)p.dispatchEvent(new CustomEvent('stype-change:'+(this.closest('[data-form-id]')||{}).dataset.formId,{bubbles:true}))">
         <option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option>
       </select>
       <input type="number" id="sub-form-interval-val" value="${Math.round(s.scheduleInterval / 60000)}" min="1" style="width:60px;"> 分钟`;
     } else {
       const st = s.scheduleType;
-      html += `<select id="sub-form-stype">
+      html += `<select id="sub-form-stype" onchange="var p=document.getElementById('${PANEL_ID}');if(p)p.dispatchEvent(new CustomEvent('stype-change:'+(this.closest('[data-form-id]')||{}).dataset.formId,{bubbles:true}))">
         <option value="interval">间隔</option>
         <option value="daily" ${st === "daily" ? "selected" : ""}>每天</option>
         <option value="weekly" ${st === "weekly" ? "selected" : ""}>每周</option>
@@ -3136,8 +3136,8 @@
 
     // 按钮区
     html += `<div class="dsapi-plus-subscribe-form-actions">
-      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save" id="dsapi-sub-save-btn" ontouchstart="this.click()" onclick="(function(self){var ev=new Event('saveSubmission',{bubbles:true});self.dispatchEvent(ev);})(this)" style="touch-action:manipulation;cursor:pointer;z-index:999;">💾 保存</button>
-      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel" id="dsapi-sub-cancel-btn" ontouchstart="this.click()" onclick="(function(self){var ev=new Event('cancelSubmission',{bubbles:true});self.dispatchEvent(ev);})(this)" style="touch-action:manipulation;cursor:pointer;z-index:999;">取消</button>
+      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save" ontouchstart="var p=document.getElementById('${PANEL_ID}'),f=this.closest('[data-form-id]');if(p&&f)p.dispatchEvent(new CustomEvent('submit-save:'+f.dataset.formId,{bubbles:true}))" onclick="var p=document.getElementById('${PANEL_ID}'),f=this.closest('[data-form-id]');if(p&&f)p.dispatchEvent(new CustomEvent('submit-save:'+f.dataset.formId,{bubbles:true}))">💾 保存</button>
+      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel" ontouchstart="var p=document.getElementById('${PANEL_ID}'),f=this.closest('[data-form-id]');if(p&&f)p.dispatchEvent(new CustomEvent('submit-cancel:'+f.dataset.formId,{bubbles:true}))" onclick="var p=document.getElementById('${PANEL_ID}'),f=this.closest('[data-form-id]');if(p&&f)p.dispatchEvent(new CustomEvent('submit-cancel:'+f.dataset.formId,{bubbles:true}))">取消</button>
     </div>`;
 
     html += `</div>`;
@@ -3318,118 +3318,6 @@
   }
 
   function bindFormEvents(formEl, panel, editIndex) {
-    // 接收方式切换 → 显示/隐藏 Webhook 组
-    const methodSelect = formEl.querySelector("#sub-form-method");
-    const webhookGroup = formEl.querySelector("#sub-form-webhook-group");
-    if (methodSelect && webhookGroup) {
-      methodSelect.addEventListener("change", () => {
-        webhookGroup.style.display = methodSelect.value === "webhook" ? "" : "none";
-      });
-    }
-
-    // Key 筛选模式切换 → 显示/隐藏 Key 选择
-    const keyModeSelect = formEl.querySelector("#sub-form-key-mode");
-    const keySelectGroup = formEl.querySelector("#sub-form-key-select-group");
-    if (keyModeSelect && keySelectGroup) {
-      keyModeSelect.addEventListener("change", () => {
-        keySelectGroup.style.display = keyModeSelect.value === "selected" ? "" : "none";
-      });
-    }
-
-    // 频率类型切换
-    const stypeSelect = formEl.querySelector("#sub-form-stype");
-    const scheduleRow = formEl.querySelector("#sub-form-schedule");
-    if (stypeSelect && scheduleRow) {
-      function handleScheduleChange() {
-        // 读取当前值（优先 DOM → 其次 dataset 缓存 → 最后默认值）
-        const currentHour = parseInt(formEl.querySelector("#sub-form-hour")?.value ?? formEl.dataset.savedHour ?? 9, 10);
-        const currentMinute = parseInt(formEl.querySelector("#sub-form-minute")?.value ?? formEl.dataset.savedMinute ?? 0, 10);
-        const currentInterval = parseInt(formEl.querySelector("#sub-form-interval-val")?.value ?? formEl.dataset.savedInterval ?? 60, 10);
-        const currentWeekday = parseInt(formEl.querySelector("#sub-form-weekday")?.value ?? formEl.dataset.savedWeekday ?? 1, 10);
-        const currentMonthday = parseInt(formEl.querySelector("#sub-form-monthday")?.value ?? formEl.dataset.savedMonthday ?? 1, 10);
-        // 存到 dataset 中，跨模式切换后恢复
-        Object.assign(formEl.dataset, { savedHour: currentHour, savedMinute: currentMinute, savedInterval: currentInterval, savedWeekday: currentWeekday, savedMonthday: currentMonthday });
-        const st = formEl.querySelector("#sub-form-stype")?.value || "daily";
-
-        let schedHtml = "";
-        if (st === "interval") {
-          schedHtml = `<select id="sub-form-stype"><option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select>
-            <input type="number" id="sub-form-interval-val" value="${currentInterval}" min="1" style="width:60px;"> 分钟`;
-        } else {
-          schedHtml = `<select id="sub-form-stype"><option value="interval">间隔</option><option value="daily" ${st === "daily" ? "selected" : ""}>每天</option><option value="weekly" ${st === "weekly" ? "selected" : ""}>每周</option><option value="monthly" ${st === "monthly" ? "selected" : ""}>每月</option></select>`;
-          if (st === "weekly") {
-            schedHtml += `<select id="sub-form-weekday">${["周日","周一","周二","周三","周四","周五","周六"].map((d,i) => `<option value="${i}" ${currentWeekday === i ? "selected" : ""}>${d}</option>`).join("")}</select>`;
-          }
-          if (st === "monthly") {
-            schedHtml += `<input type="number" id="sub-form-monthday" value="${currentMonthday}" min="1" max="31" style="width:50px;"> 日`;
-          }
-          schedHtml += ` <input type="number" id="sub-form-hour" value="${currentHour}" min="0" max="23" style="width:50px;"> 时
-            <input type="number" id="sub-form-minute" value="${currentMinute}" min="0" max="59" style="width:50px;"> 分`;
-        }
-        scheduleRow.innerHTML = schedHtml;
-        // 把 change 处理函数绑定到新的 select 上
-        const newStype = scheduleRow.querySelector("#sub-form-stype");
-        if (newStype) newStype.addEventListener("change", handleScheduleChange);
-      }
-      stypeSelect.addEventListener("change", handleScheduleChange);
-    }
-
-    // 内容格式切换 → 显示/隐藏 ImgBB Key
-    var formatSelect = formEl.querySelector("#sub-form-format");
-    if (formatSelect) {
-      formatSelect.addEventListener("change", function () {
-        var imgbbGroup = formEl.querySelector("#sub-form-imgbb-group");
-        if (imgbbGroup) imgbbGroup.style.display = formatSelect.value === "screenshot" ? "" : "none";
-      });
-    }
-
-    // 保存（使用自定义事件 + onlick/ontouchstart 绕过移动端 addEventListener 问题）
-    formEl.addEventListener("saveSubmission", function saveHandler(e) {
-      e.preventDefault();
-      const formData = collectFormData(formEl);
-      if (!formData.name.trim()) { alert("请输入订阅名称"); return; }
-      if (formData.receiveMethod === "webhook" && !formData.webhookUrl.trim()) { alert("请输入 Webhook URL"); return; }
-
-      if (editIndex !== null && editIndex !== undefined && state.subscriptions[editIndex]) {
-        // 编辑已有
-        Object.assign(state.subscriptions[editIndex], formData);
-        // 编辑后重置发送状态，使新计划生效
-        state.subscriptions[editIndex].lastSentAt = null;
-        state.subscriptions[editIndex].lastSentStatus = null;
-        delete state.subscriptionLastSent[state.subscriptions[editIndex].id];
-        saveSubscriptionLastSent();
-      } else {
-        // 新建
-        formData.id = createSubscriptionId();
-        formData.createdAt = new Date().toISOString();
-        state.subscriptions.push(formData);
-      }
-      saveSubscriptions();
-      updateSubscribeBtnState();
-      checkSubscriptionSchedule(); // 保存后立即检查是否需要发送
-
-      // 刷新内嵌面板
-      var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
-      if (content) {
-        var newPanel = renderSubscriptionPanel();
-        content.innerHTML = "";
-        content.appendChild(newPanel);
-        bindSubscriptionPanelEvents(newPanel);
-      }
-    });
-
-    // 取消（使用自定义事件）
-    formEl.addEventListener("cancelSubmission", function cancelHandler(e) {
-      e.preventDefault();
-      // 取消编辑：刷新内嵌面板
-      var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
-      if (content) {
-        var newPanel = renderSubscriptionPanel();
-        content.innerHTML = "";
-        content.appendChild(newPanel);
-        bindSubscriptionPanelEvents(newPanel);
-      }
-    });
   }
 
   function collectFormData(formEl) {
@@ -3473,7 +3361,79 @@
     return data;
   }
 
-  function updateSubscribeBtnState() {
+  /** 在静态 panel 上注册事件代理，处理此表单的所有交互（解决移动端动态元素事件不触发） */
+  function registerFormDelegation(formEl, panel) {
+    var formId = formEl._formId || (formEl._formId = "f" + Date.now() + Math.random().toString(36).slice(2, 6));
+    formEl.dataset.formId = formId;
+
+    // 保存按钮
+    panel.addEventListener("submit-save:" + formId, function saveForm(e) {
+      e.preventDefault();
+      const formData = collectFormData(formEl);
+      if (!formData.name.trim()) { alert("请输入订阅名称"); return; }
+      if (formData.receiveMethod === "webhook" && !formData.webhookUrl.trim()) { alert("请输入 Webhook URL"); return; }
+
+      const editIndex = formEl._editIndex;
+      if (editIndex !== null && editIndex !== undefined && state.subscriptions[editIndex]) {
+        Object.assign(state.subscriptions[editIndex], formData);
+        state.subscriptions[editIndex].lastSentAt = null;
+        state.subscriptions[editIndex].lastSentStatus = null;
+        delete state.subscriptionLastSent[state.subscriptions[editIndex].id];
+        saveSubscriptionLastSent();
+      } else {
+        formData.id = createSubscriptionId();
+        formData.createdAt = new Date().toISOString();
+        state.subscriptions.push(formData);
+      }
+      saveSubscriptions();
+      updateSubscribeBtnState();
+      checkSubscriptionSchedule();
+      refreshSubscribeInlineContent();
+      panel.removeEventListener("submit-save:" + formId, saveForm);
+    });
+
+    // 取消按钮
+    panel.addEventListener("submit-cancel:" + formId, function cancelForm(e) {
+      e.preventDefault();
+      refreshSubscribeInlineContent();
+      panel.removeEventListener("submit-cancel:" + formId, cancelForm);
+    });
+
+    // 频率类型切换
+    panel.addEventListener("stype-change:" + formId, function stypeChange(e) {
+      e.preventDefault();
+      var st = formEl.querySelector("#sub-form-stype")?.value || "daily";
+      var scheduleRow = formEl.querySelector("#sub-form-schedule");
+      if (!scheduleRow) return;
+
+      // 保留当前值
+      var currentHour = parseInt(formEl.querySelector("#sub-form-hour")?.value ?? formEl.dataset.savedHour ?? 9, 10);
+      var currentMinute = parseInt(formEl.querySelector("#sub-form-minute")?.value ?? formEl.dataset.savedMinute ?? 0, 10);
+      var currentInterval = parseInt(formEl.querySelector("#sub-form-interval-val")?.value ?? formEl.dataset.savedInterval ?? 60, 10);
+      var currentWeekday = parseInt(formEl.querySelector("#sub-form-weekday")?.value ?? formEl.dataset.savedWeekday ?? 1, 10);
+      var currentMonthday = parseInt(formEl.querySelector("#sub-form-monthday")?.value ?? formEl.dataset.savedMonthday ?? 1, 10);
+      Object.assign(formEl.dataset, { savedHour: currentHour, savedMinute: currentMinute, savedInterval: currentInterval, savedWeekday: currentWeekday, savedMonthday: currentMonthday });
+
+      var schedHtml = "";
+      if (st === "interval") {
+        schedHtml = `<select id="sub-form-stype" onchange="document.getElementById('${PANEL_ID}').dispatchEvent(new CustomEvent('stype-change:${formId}',{bubbles:true}))"><option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select>
+          <input type="number" id="sub-form-interval-val" value="${currentInterval}" min="1" style="width:60px;"> 分钟`;
+      } else {
+        schedHtml = `<select id="sub-form-stype" onchange="document.getElementById('${PANEL_ID}').dispatchEvent(new CustomEvent('stype-change:${formId}',{bubbles:true}))"><option value="interval">间隔</option><option value="daily" ${st==="daily"?"selected":""}>每天</option><option value="weekly" ${st==="weekly"?"selected":""}>每周</option><option value="monthly" ${st==="monthly"?"selected":""}>每月</option></select>`;
+        if (st === "weekly") {
+          schedHtml += `<select id="sub-form-weekday">${["周日","周一","周二","周三","周四","周五","周六"].map((d,i)=>"<option value=\""+i+"\""+(currentWeekday===i?" selected":"")+">"+d+"</option>").join("")}</select>`;
+        }
+        if (st === "monthly") {
+          schedHtml += `<input type="number" id="sub-form-monthday" value="${currentMonthday}" min="1" max="31" style="width:50px;"> 日`;
+        }
+        schedHtml += ` <input type="number" id="sub-form-hour" value="${currentHour}" min="0" max="23" style="width:50px;"> 时
+          <input type="number" id="sub-form-minute" value="${currentMinute}" min="0" max="59" style="width:50px;"> 分`;
+      }
+      scheduleRow.innerHTML = schedHtml;
+    });
+  }
+
+  function refreshSubscribeInlineContent() {
     const btn = document.querySelector(".dsapi-plus-subscribe-btn");
     if (btn) {
       btn.classList.toggle("active", state.subscriptionVisible);
@@ -5797,7 +5757,12 @@
         var insertTarget = inlineContent.querySelector(".dsapi-plus-subscribe-list, .dsapi-plus-subscribe-form") || inlineContent;
         insertTarget.insertAdjacentHTML("beforebegin", formHtml);
         var formEl = inlineContent.querySelector(".dsapi-plus-subscribe-form");
-        if (formEl) bindFormEvents(formEl, inlineContent, null);
+        if (formEl) {
+          // 将处理函数直接挂在 formEl 上供 inline onclick/onchange 调用
+          bindFormEvents(formEl, inlineContent, null);
+          // 在 panel 上注册一次性事件代理，处理该表单的交互
+          registerFormDelegation(formEl, panel);
+        }
       });
     }
   }
