@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.76
+// @version      1.11.77
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3136,8 +3136,8 @@
 
     // 按钮区
     html += `<div class="dsapi-plus-subscribe-form-actions">
-      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save" style="touch-action:manipulation;cursor:pointer;z-index:999;">💾 保存</button>
-      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel" style="touch-action:manipulation;cursor:pointer;z-index:999;">取消</button>
+      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save" id="dsapi-sub-save-btn" ontouchstart="this.click()" onclick="(function(self){var ev=new Event('saveSubmission',{bubbles:true});self.dispatchEvent(ev);})(this)" style="touch-action:manipulation;cursor:pointer;z-index:999;">💾 保存</button>
+      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel" id="dsapi-sub-cancel-btn" ontouchstart="this.click()" onclick="(function(self){var ev=new Event('cancelSubmission',{bubbles:true});self.dispatchEvent(ev);})(this)" style="touch-action:manipulation;cursor:pointer;z-index:999;">取消</button>
     </div>`;
 
     html += `</div>`;
@@ -3383,10 +3383,8 @@
       });
     }
 
-    // 保存（使用事件代理避免移动端动态元素事件绑定问题）
-    document.body.addEventListener("click", function saveDelegate(e) {
-      var btn = e.target.closest("[data-action='save']");
-      if (!btn || !formEl.contains(btn)) return;
+    // 保存（使用自定义事件 + onlick/ontouchstart 绕过移动端 addEventListener 问题）
+    formEl.addEventListener("saveSubmission", function saveHandler(e) {
       e.preventDefault();
       const formData = collectFormData(formEl);
       if (!formData.name.trim()) { alert("请输入订阅名称"); return; }
@@ -3418,13 +3416,10 @@
         content.appendChild(newPanel);
         bindSubscriptionPanelEvents(newPanel);
       }
-      document.body.removeEventListener("click", saveDelegate);
     });
 
-    // 取消（使用事件代理）
-    document.body.addEventListener("click", function cancelDelegate(e) {
-      var btn = e.target.closest("[data-action='cancel']");
-      if (!btn || !formEl.contains(btn)) return;
+    // 取消（使用自定义事件）
+    formEl.addEventListener("cancelSubmission", function cancelHandler(e) {
       e.preventDefault();
       // 取消编辑：刷新内嵌面板
       var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
@@ -3434,7 +3429,6 @@
         content.appendChild(newPanel);
         bindSubscriptionPanelEvents(newPanel);
       }
-      document.body.removeEventListener("click", cancelDelegate);
     });
   }
 
