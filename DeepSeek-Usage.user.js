@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.70
+// @version      1.11.71
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -1058,6 +1058,12 @@
           font-size: 10px;
           padding: 3px 4px;
         }
+        .dsapi-plus-subscribe-item-meta {
+          gap: 6px;
+        }
+        .dsapi-plus-subscribe-item {
+          padding: 10px 12px;
+        }
       }
       @media (max-width: 480px) {
         .dsapi-plus-head {
@@ -1099,6 +1105,37 @@
           min-width: 120px;
           max-height: 160px;
           font-size: 10px;
+        }
+        .dsapi-plus-subscribe-section input,
+        .dsapi-plus-subscribe-section select {
+          font-size: 12px !important;
+          min-height: 28px;
+        }
+        .dsapi-plus-subscribe-form-row {
+          flex-direction: column;
+          gap: 4px;
+        }
+        .dsapi-plus-subscribe-form-label {
+          width: 100% !important;
+        }
+        .dsapi-plus-subscribe-form-control {
+          width: 100% !important;
+        }
+        .dsapi-plus-subscribe-form-control input,
+        .dsapi-plus-subscribe-form-control select {
+          max-width: 100% !important;
+          width: 100% !important;
+          box-sizing: border-box;
+        }
+        .dsapi-plus-subscribe-item-meta {
+          flex-direction: column;
+          gap: 4px;
+        }
+        .dsapi-plus-subscribe-item-actions {
+          flex-wrap: wrap;
+        }
+        .dsapi-plus-subscribe-item {
+          padding: 10px;
         }
       }
 
