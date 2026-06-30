@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.74
+// @version      1.11.75
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3383,14 +3383,14 @@
       });
     }
 
-    // 保存
-    var saveBtn = formEl.querySelector("[data-action='save']");
-    if (saveBtn) {
-      function handleSave(e) {
-        e.preventDefault();
-        const formData = collectFormData(formEl);
-        if (!formData.name.trim()) { alert("请输入订阅名称"); return; }
-        if (formData.receiveMethod === "webhook" && !formData.webhookUrl.trim()) { alert("请输入 Webhook URL"); return; }
+    // 保存（使用事件代理避免移动端动态元素事件绑定问题）
+    document.body.addEventListener("click", function saveDelegate(e) {
+      var btn = e.target.closest("[data-action='save']");
+      if (!btn || !formEl.contains(btn)) return;
+      e.preventDefault();
+      const formData = collectFormData(formEl);
+      if (!formData.name.trim()) { alert("请输入订阅名称"); return; }
+      if (formData.receiveMethod === "webhook" && !formData.webhookUrl.trim()) { alert("请输入 Webhook URL"); return; }
 
       if (editIndex !== null && editIndex !== undefined && state.subscriptions[editIndex]) {
         // 编辑已有
@@ -3418,30 +3418,24 @@
         content.appendChild(newPanel);
         bindSubscriptionPanelEvents(newPanel);
       }
-      }
-      saveBtn.addEventListener("click", handleSave);
-      saveBtn.addEventListener("touchend", handleSave);
-      saveBtn.addEventListener("pointerdown", handleSave);
-    }
+      document.body.removeEventListener("click", saveDelegate);
+    });
 
-    // 取消
-    var cancelBtn = formEl.querySelector("[data-action='cancel']");
-    if (cancelBtn) {
-      function handleCancel(e) {
-        e.preventDefault();
-        // 取消编辑：刷新内嵌面板
-        var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
-        if (content) {
-          var newPanel = renderSubscriptionPanel();
-          content.innerHTML = "";
-          content.appendChild(newPanel);
-          bindSubscriptionPanelEvents(newPanel);
-        }
+    // 取消（使用事件代理）
+    document.body.addEventListener("click", function cancelDelegate(e) {
+      var btn = e.target.closest("[data-action='cancel']");
+      if (!btn || !formEl.contains(btn)) return;
+      e.preventDefault();
+      // 取消编辑：刷新内嵌面板
+      var content = document.querySelector(".dsapi-plus-subscribe-inline-content");
+      if (content) {
+        var newPanel = renderSubscriptionPanel();
+        content.innerHTML = "";
+        content.appendChild(newPanel);
+        bindSubscriptionPanelEvents(newPanel);
       }
-      cancelBtn.addEventListener("click", handleCancel);
-      cancelBtn.addEventListener("touchend", handleCancel);
-      cancelBtn.addEventListener("pointerdown", handleCancel);
-    }
+      document.body.removeEventListener("click", cancelDelegate);
+    });
   }
 
   function collectFormData(formEl) {
