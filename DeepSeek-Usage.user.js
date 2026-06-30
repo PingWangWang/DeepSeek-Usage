@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.93
+// @version      1.11.94
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2284,6 +2284,8 @@
       keyDetailData = keyDetailData.filter(function(item) { return sub.selectedKeys.includes(item.key); });
     }
     var topCount = sub.contentOptions.topKeys || 10;
+    // 确保 topCount 为正整数
+    if (typeof topCount !== "number" || topCount < 1) topCount = 10;
     var monthKeys = keyDetailData.slice(0, topCount).map(function(k) {
       var pt = (k.inputMissTokens || 0) + (k.inputHitTokens || 0);
       return {
@@ -3157,7 +3159,7 @@
         <div style="margin-top: 6px; display: flex; align-items: center; gap: 6px;">
           <span style="font-size: 11px; color: var(--dsapi-plus-muted);">Top Key 数量:</span>
           <select id="sub-form-top-keys" style="border:1px solid rgba(2,14,54,0.15);border-radius:4px;padding:2px 4px;font-size:12px;">
-            ${[5, 10, 20, 50].map(n => `<option value="${n}" ${s.contentOptions.topKeys === n ? "selected" : ""}>${n}</option>`).join("")}
+            ${[5, 10, 20, 50].map(n => `<option value="${n}" ${(s.contentOptions.topKeys || 10) === n ? "selected" : ""}>${n}</option>`).join("")}
           </select>
         </div>
       </div>
@@ -3459,7 +3461,7 @@
         cacheHitRate: contentOpts.cacheHitRate !== false,
         modelDetail: !!contentOpts.modelDetail,
         keyDetail: contentOpts.keyDetail !== false,
-        topKeys: parseInt(getName("#sub-form-top-keys"), 10) || 10,
+        topKeys: Math.max(1, parseInt(getName("#sub-form-top-keys"), 10) || 10),
       },
       lastSentAt: null,
       lastSentStatus: null,
