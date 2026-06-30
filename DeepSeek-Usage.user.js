@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.69
+// @version      1.11.70
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -14,6 +14,7 @@
 // @downloadURL  https://raw.githubusercontent.com/PingWangWang/DeepSeek-Usage/main/DeepSeek-Usage.user.js
 // @updateURL    https://raw.githubusercontent.com/PingWangWang/DeepSeek-Usage/main/DeepSeek-Usage.meta.js
 // @supportURL   https://github.com/PingWangWang/DeepSeek-Usage/issues
+// @connect      oapi.dingtalk.com
 // @license      MIT
 // ==/UserScript==
 
@@ -2687,23 +2688,38 @@
     }
   }
 
-  // 上传截图到 ImgBB
+  // 上传截图到 ImgBB（在页面上下文中执行 fetch，绕过 GM 沙箱代理限制），支持自动重试 3 次
   async function uploadScreenshot(imageBlob, apiKey) {
-    try {
-      var formData = new FormData();
-      formData.append("image", imageBlob, "report.png");
-      var resp = await fetch("https://api.imgbb.com/1/upload?key=" + encodeURIComponent(apiKey), {
-        method: "POST",
-        body: formData,
+    // Blob → base64
+    var base64 = await new Promise(function (res) {
+      var reader = new FileReader();
+      reader.onload = function () { res(reader.result.split(",")[1]); };
+      reader.readAsDataURL(imageBlob);
+    });
+    var maxRetries = 3;
+    for (var retry = 0; retry < maxRetries; retry++) {
+      if (retry > 0) await new Promise(function (r) { setTimeout(r, 2000); }); // 重试前等待 2 秒
+      var callbackId = "imgbb_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
+      var result = await new Promise(function (resolve) {
+        window.addEventListener(callbackId, function (e) { resolve(e.detail); }, { once: true });
+        var script = document.createElement("script");
+        script.textContent = "(async function(){try{var r=await fetch('https://api.imgbb.com/1/upload?key=" +
+          encodeURIComponent(apiKey) +
+          "',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'}," +
+          "body:'image=" + encodeURIComponent(base64) + "'});" +
+          "var d=await r.json();" +
+          "window.dispatchEvent(new CustomEvent('" + callbackId + "',{detail:{success:d.success,url:d.data?d.data.url:''}}));" +
+          "}catch(e){window.dispatchEvent(new CustomEvent('" + callbackId + "',{detail:{success:false,error:e.message}}));}" +
+          "})()";
+        document.body.appendChild(script);
+        script.remove();
       });
-      var data = await resp.json();
-      if (data.success) {
-        return { success: true, url: data.data.url };
+      if (result.success && result.url) return { success: true, url: result.url };
+      if (retry < maxRetries - 1) {
+        console.log("[DeepSeek Usage Panel Plus] ImgBB 上传失败，第 " + (retry + 1) + " 次重试...");
       }
-      return { success: false, error: (data.error && data.error.message) || "ImgBB 上传失败" };
-    } catch (err) {
-      return { success: false, error: err.message };
     }
+    return { success: false, error: "ImgBB 上传失败（已重试 " + maxRetries + " 次）" };
   }
 
   function loadHtml2Canvas() {
