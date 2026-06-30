@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.94
+// @version      1.11.95
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3674,16 +3674,26 @@
         return (now.getTime() - lastSent.getTime()) >= sub.scheduleInterval;
       case "daily":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
-        var shouldSend = nowMinHour >= subMinHour;
-        if (shouldSend) {
-          console.log("[DeepSeek Usage Panel Plus] shouldSendNow=true, sub:", sub.name, "time:", now.toLocaleTimeString(), "schedule:", sub.scheduleHour + ":" + sub.scheduleMinute, "lastSent:", lastSent ? lastSent.toLocaleString() : "null");
+        // 新订阅或从未发送时，仅在今天计划时间已到且还未发过的情况下发送
+        if (!lastSent) {
+          // 距离计划时间不足 60 秒（刚设置）时，说明是新建后首次检查，不应立即发送
+          var diff = now.getTime() - new Date(sub.createdAt || now).getTime();
+          if (diff < 120000) return false; // 2 分钟内不发送
         }
-        return shouldSend;
+        return nowMinHour >= subMinHour;
       case "weekly":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
+        if (!lastSent) {
+          var diff = now.getTime() - new Date(sub.createdAt || now).getTime();
+          if (diff < 120000) return false;
+        }
         return now.getDay() === sub.scheduleDayOfWeek && nowMinHour >= subMinHour;
       case "monthly":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
+        if (!lastSent) {
+          var diff = now.getTime() - new Date(sub.createdAt || now).getTime();
+          if (diff < 120000) return false;
+        }
         return now.getDate() === sub.scheduleDayOfMonth && nowMinHour >= subMinHour;
       default:
         return false;
