@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.73
+// @version      1.11.74
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3136,8 +3136,8 @@
 
     // 按钮区
     html += `<div class="dsapi-plus-subscribe-form-actions">
-      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save">💾 保存</button>
-      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel">取消</button>
+      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save" style="touch-action:manipulation;cursor:pointer;z-index:999;">💾 保存</button>
+      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel" style="touch-action:manipulation;cursor:pointer;z-index:999;">取消</button>
     </div>`;
 
     html += `</div>`;
@@ -3421,6 +3421,7 @@
       }
       saveBtn.addEventListener("click", handleSave);
       saveBtn.addEventListener("touchend", handleSave);
+      saveBtn.addEventListener("pointerdown", handleSave);
     }
 
     // 取消
@@ -3439,6 +3440,7 @@
       }
       cancelBtn.addEventListener("click", handleCancel);
       cancelBtn.addEventListener("touchend", handleCancel);
+      cancelBtn.addEventListener("pointerdown", handleCancel);
     }
   }
 
