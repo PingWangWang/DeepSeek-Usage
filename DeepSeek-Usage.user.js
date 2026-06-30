@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.75
+// @version      1.11.76
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -5790,7 +5790,15 @@
         if (list) list.style.display = "none";
         if (noData) noData.style.display = "none";
         var existingForm = inlineContent.querySelector(".dsapi-plus-subscribe-form");
-        if (existingForm) { existingForm.remove(); return; }
+        if (existingForm) {
+          // 只隐藏编辑面板，恢复列表显示
+          existingForm.remove();
+          var list = inlineContent.querySelector(".dsapi-plus-subscribe-list");
+          var noData = inlineContent.querySelector("div[style*='text-align: center']");
+          if (list) list.style.display = "";
+          if (noData) noData.style.display = "";
+          return;
+        }
         var formHtml = renderSubscriptionForm(null, null);
         var insertTarget = inlineContent.querySelector(".dsapi-plus-subscribe-list, .dsapi-plus-subscribe-form") || inlineContent;
         insertTarget.insertAdjacentHTML("beforebegin", formHtml);
