@@ -2,7 +2,7 @@
 
 > 本项目基于 [DeepSeek Usage+](https://greasyfork.org/zh-CN/scripts/578066-deepseek-usage-%E5%AE%98%E6%96%B9api%E7%94%A8%E9%87%8F%E9%A1%B5%E5%A2%9E%E5%BC%BA%E4%BB%AA%E8%A1%A8%E7%9B%98) 修改扩展，为 DeepSeek API 用量页（platform.deepseek.com/usage）注入完整的数据分析仪表盘，并可在对话页快速跳转。
 
-[![Version](https://img.shields.io/badge/version-1.11.95-blue)]()
+[![Version](https://img.shields.io/badge/version-1.11.96-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-supported-orange)]()
 

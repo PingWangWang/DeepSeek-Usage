@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.95
+// @version      1.11.96
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2280,13 +2280,18 @@
 
     // 过滤 Key 明细（月总数据）
     var keyDetailData = state.keyDetailData || [];
-    if (sub.keyFilterMode === "selected" && sub.selectedKeys.length) {
-      keyDetailData = keyDetailData.filter(function(item) { return sub.selectedKeys.includes(item.key); });
-    }
     var topCount = sub.contentOptions.topKeys || 10;
     // 确保 topCount 为正整数
     if (typeof topCount !== "number" || topCount < 1) topCount = 10;
-    var monthKeys = keyDetailData.slice(0, topCount).map(function(k) {
+    // 从 keyDetailData 中筛选出已选中的 key（有数据的）
+    var filteredKeyData = [];
+    if (sub.keyFilterMode === "selected" && sub.selectedKeys.length) {
+      filteredKeyData = keyDetailData.filter(function(item) { return sub.selectedKeys.includes(item.key); });
+    } else {
+      filteredKeyData = keyDetailData;
+    }
+    // 将已有的 key 数据映射为输出格式
+    var monthKeys = filteredKeyData.map(function(k) {
       var pt = (k.inputMissTokens || 0) + (k.inputHitTokens || 0);
       return {
         key: k.key,
@@ -2299,6 +2304,30 @@
         cacheHitRate: pt > 0 ? ((k.inputHitTokens || 0) / pt * 100) : 0,
       };
     });
+    // 如果是指定 key 模式，为选中的但无数据的 key 补充用量为 0 的条目
+    if (sub.keyFilterMode === "selected" && sub.selectedKeys.length) {
+      var existingMonthKeys = {};
+      for (var _mke = 0; _mke < monthKeys.length; _mke++) {
+        existingMonthKeys[monthKeys[_mke].key] = true;
+      }
+      for (var _msk = 0; _msk < sub.selectedKeys.length; _msk++) {
+        if (!existingMonthKeys[sub.selectedKeys[_msk]]) {
+          monthKeys.push({
+            key: sub.selectedKeys[_msk],
+            requestCount: 0,
+            inputMissTokens: 0,
+            inputHitTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            totalCost: 0,
+            cacheHitRate: 0,
+          });
+        }
+      }
+    }
+    // 按总费用降序排列，再取 topCount
+    monthKeys.sort(function(a, b) { return b.totalCost - a.totalCost; });
+    monthKeys = monthKeys.slice(0, topCount);
 
     // 当日 Key 明细 — 从 keyDetailDailyData 提取今日各 Key 费用，并合并月明细字段
     var todayKeys = [];
@@ -2351,6 +2380,24 @@
             cacheHitRate: todayHitRate,
           };
           todayByKey.push(entry);
+        }
+        // 如果是指定 key 模式，为选中的但无今日数据的 key 补充用量为 0 的条目
+        if (sub.keyFilterMode === "selected" && sub.selectedKeys.length) {
+          var existingTodayKeys = {};
+          for (var _tek = 0; _tek < todayByKey.length; _tek++) {
+            existingTodayKeys[todayByKey[_tek].key] = true;
+          }
+          for (var _tsk = 0; _tsk < sub.selectedKeys.length; _tsk++) {
+            if (!existingTodayKeys[sub.selectedKeys[_tsk]]) {
+              todayByKey.push({
+                key: sub.selectedKeys[_tsk],
+                todayCost: 0,
+                requestCount: 0,
+                totalTokens: 0,
+                cacheHitRate: 0,
+              });
+            }
+          }
         }
         todayByKey.sort(function(a, b) { return b.todayCost - a.todayCost; });
         todayKeys = todayByKey.slice(0, topCount);
