@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.12.0
+// @version      1.12.1
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3463,9 +3463,18 @@
       const eidx = formEl._editIndex;
       if (eidx !== null && eidx !== undefined && state.subscriptions[eidx]) {
         Object.assign(state.subscriptions[eidx], formData);
-        state.subscriptions[eidx].lastSentAt = null;
         state.subscriptions[eidx].lastSentStatus = null;
-        delete state.subscriptionLastSent[state.subscriptions[eidx].id];
+        // [修改] 编辑保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
+        var _now = new Date();
+        var _subMin = formData.scheduleHour * 60 + formData.scheduleMinute;
+        var _nowMin = _now.getHours() * 60 + _now.getMinutes();
+        if (formData.scheduleType !== "interval" && _nowMin >= _subMin) {
+          state.subscriptions[eidx].lastSentAt = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 0, 0, 0).toISOString();
+          state.subscriptionLastSent[state.subscriptions[eidx].id] = state.subscriptions[eidx].lastSentAt;
+        } else {
+          state.subscriptions[eidx].lastSentAt = null;
+          delete state.subscriptionLastSent[state.subscriptions[eidx].id];
+        }
         saveSubscriptionLastSent();
       } else {
         formData.id = createSubscriptionId();
