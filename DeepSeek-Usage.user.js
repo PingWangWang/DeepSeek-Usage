@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.97
+// @version      1.12.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -90,6 +90,8 @@
     subscriptionLastSent: loadSubscriptionLastSent(), // { subId: ISO时间戳 }
     subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
   };
+
+  migrateSubscriptions();                         // 迁移旧版 contentOptions 字段
 
   function loadSectionVisible() {
     try {
@@ -306,6 +308,39 @@
       if (saved) return JSON.parse(saved);
     } catch (e) { /* ignore */ }
     return [];
+  }
+
+  /**
+   * 迁移旧版 contentOptions 字段到新版结构
+   * - keyDetail → todayDetail + monthDetail
+   * - 废弃 cacheHitRate、modelDetail（不再作为独立开关）
+   * [修改] 方案二重构：拆分 keyDetail 为当日/月度两个独立开关
+   */
+  function migrateSubscriptions() {
+    var subs = state.subscriptions;
+    if (!subs || !subs.length) return;
+    var changed = false;
+    for (var i = 0; i < subs.length; i++) {
+      var opts = subs[i].contentOptions;
+      if (!opts) continue;
+      // 旧版 keyDetail → 拆分为 todayDetail + monthDetail
+      if (opts.keyDetail !== undefined) {
+        opts.todayDetail = opts.keyDetail;
+        opts.monthDetail = opts.keyDetail;
+        delete opts.keyDetail;
+        changed = true;
+      }
+      // 删除废弃字段
+      if (opts.cacheHitRate !== undefined) {
+        delete opts.cacheHitRate;
+        changed = true;
+      }
+      if (opts.modelDetail !== undefined) {
+        delete opts.modelDetail;
+        changed = true;
+      }
+    }
+    if (changed) saveSubscriptions();
   }
 
   function saveSubscriptions() {
@@ -2207,9 +2242,8 @@
       contentOptions: {
         summary: true,
         tokenComposition: true,
-        cacheHitRate: true,
-        modelDetail: false,
-        keyDetail: true,
+        todayDetail: true,
+        monthDetail: true,
         topKeys: 10,
       },
       createdAt: new Date().toISOString(),
@@ -2433,7 +2467,7 @@
       lines.push("| 当日费用 | 当月费用 | 钱包余额 |");
       lines.push("|---------|---------|---------|");
       lines.push("| " + formatCnyAmount(sumData.todayCost) + " | " + formatCnyAmount(sumData.totalCost) + " | " + formatCnyAmount(sumData.balance) + " |");
-      if (sub.contentOptions.modelDetail && data.costComposition) {
+      if (data.costComposition) {
         var cc = data.costComposition;
         lines.push("| 未缓存费用 | 缓存命中费用 | 输出费用 |");
         lines.push("|-----------|-------------|---------|");
@@ -2442,7 +2476,7 @@
       lines.push("");
     }
 
-    if (sub.contentOptions.tokenComposition || sub.contentOptions.cacheHitRate) {
+    if (sub.contentOptions.tokenComposition) {
       var tc = data.tokenComposition;
       var totalTokens = tc.inputMiss + tc.inputHit + tc.output;
       lines.push("## 📈 Token 构成");
@@ -2463,7 +2497,7 @@
       }
     }
 
-    if (sub.contentOptions.keyDetail && data.todayKeys) {
+    if (sub.contentOptions.todayDetail && data.todayKeys) {
       lines.push("## 🔑 当日 Key 明细 (Top " + Math.min(data.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ")");
       lines.push("| Key | 总Token | 缓存命中率 | 今日费用 |");
       lines.push("|-----|---------|------------|----------|");
@@ -2479,7 +2513,7 @@
       lines.push("");
     }
 
-    if (sub.contentOptions.keyDetail && data.monthKeys && data.monthKeys.length) {
+    if (sub.contentOptions.monthDetail && data.monthKeys && data.monthKeys.length) {
       lines.push("## 🔑 Key 月度总明细 (Top " + data.monthKeys.length + ")");
       lines.push("| Key | 总Token数 | 缓存命中率 | 总费用 |");
       lines.push("|-----|-----------|------------|--------|");
@@ -2741,13 +2775,13 @@
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">💰 费用摘要</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px;">';
       html += '<tr>' + summaryCell("当日费用", formatCnyAmount(reportData.summary.todayCost)) + summaryCell("当月费用", formatCnyAmount(reportData.summary.totalCost)) + summaryCell("钱包余额", formatCnyAmount(reportData.summary.balance)) + '</tr>';
-      if (sub.contentOptions.modelDetail && reportData.costComposition) {
+      if (reportData.costComposition) {
         html += '<tr>' + summaryCell("未缓存费用", formatCnyAmount(reportData.costComposition.costMiss)) + summaryCell("缓存命中费用", formatCnyAmount(reportData.costComposition.costHit)) + summaryCell("输出费用", formatCnyAmount(reportData.costComposition.costOut)) + '</tr>';
       }
       html += '</table>';
     }
 
-    if (sub.contentOptions.tokenComposition || sub.contentOptions.cacheHitRate) {
+    if (sub.contentOptions.tokenComposition) {
       var scr_total = reportData.tokenComposition.inputMiss + reportData.tokenComposition.inputHit + reportData.tokenComposition.output;
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">📈 Token 构成</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
@@ -2764,7 +2798,7 @@
       html += '</table>';
     }
 
-    if (sub.contentOptions.keyDetail && reportData.todayKeys) {
+    if (sub.contentOptions.todayDetail && reportData.todayKeys) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 当日 Key 明细 (Top ' + Math.min(reportData.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ')</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
       html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
@@ -2780,7 +2814,7 @@
       html += '</table>';
     }
 
-    if (sub.contentOptions.keyDetail && reportData.monthKeys && reportData.monthKeys.length) {
+    if (sub.contentOptions.monthDetail && reportData.monthKeys && reportData.monthKeys.length) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 Key 月度总明细 (Top ' + reportData.monthKeys.length + ')</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
       html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
@@ -3199,10 +3233,9 @@
         <div class="dsapi-plus-subscribe-checkbox-group">`;
     const contentChecks = [
       ["summary", "费用摘要"],
-      ["tokenComposition", "Token 构成"],
-      ["cacheHitRate", "缓存命中率"],
-      ["modelDetail", "费用明细"],
-      ["keyDetail", "Key 明细"],
+      ["tokenComposition", "Token构成"],
+      ["todayDetail", "当日明细"],
+      ["monthDetail", "月度明细"],
     ];
     for (const [k, label] of contentChecks) {
       const checked = s.contentOptions[k] ? "checked" : "";
@@ -3511,9 +3544,8 @@
       contentOptions: {
         summary: contentOpts.summary !== false,
         tokenComposition: contentOpts.tokenComposition !== false,
-        cacheHitRate: contentOpts.cacheHitRate !== false,
-        modelDetail: !!contentOpts.modelDetail,
-        keyDetail: contentOpts.keyDetail !== false,
+        todayDetail: contentOpts.todayDetail !== false,
+        monthDetail: contentOpts.monthDetail !== false,
         topKeys: Math.max(1, parseInt(getName("#sub-form-top-keys"), 10) || 10),
       },
       lastSentAt: null,
