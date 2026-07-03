@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.11.96
+// @version      1.11.97
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -260,9 +260,15 @@
     if (!dd || !dd.series) return dd;
     const filter = state.keyFilter;
     if (!filter || filter.mode === "all" || !filter.keys || !filter.keys.length) return dd;
+    const filtered = dd.series.filter((s) => filter.keys.includes(s.name));
+    // 同步过滤 requests / tokens / miss / hit 等并行数组，保持索引与 series 对齐
     return {
       dates: dd.dates,
-      series: dd.series.filter((s) => filter.keys.includes(s.name)),
+      series: filtered,
+      requests: dd.requests ? dd.requests.filter((r) => filter.keys.includes(r.name)) : undefined,
+      tokens: dd.tokens ? dd.tokens.filter((t) => filter.keys.includes(t.name)) : undefined,
+      miss: dd.miss ? dd.miss.filter((m) => filter.keys.includes(m.name)) : undefined,
+      hit: dd.hit ? dd.hit.filter((h) => filter.keys.includes(h.name)) : undefined,
     };
   }
 
@@ -4846,11 +4852,23 @@
     option.grid.right = 16;
     option.xAxis.data = dailyData.dates;
     option.tooltip.formatter = (params) => {
-      const rows = params.map((p, i) => ({
-        color: p.color,
-        label: p.seriesName,
-        value: formatCnyAmount(p.value, 4),
-      }));
+      const rows = params.map((p, i) => {
+        // 从同索引的 miss/hit 数组中取当日值计算缓存命中率
+        var missVal = 0, hitVal = 0, cacheRate = null;
+        if (dailyData.miss && dailyData.miss[i] && dailyData.hit && dailyData.hit[i]) {
+          missVal = dailyData.miss[i].data[p.dataIndex] || 0;
+          hitVal = dailyData.hit[i].data[p.dataIndex] || 0;
+          if (missVal + hitVal > 0) {
+            cacheRate = (hitVal / (missVal + hitVal) * 100);
+          }
+        }
+        return {
+          color: p.color,
+          label: p.seriesName,
+          value: formatCnyAmount(p.value, 4),
+          extra: cacheRate !== null ? "缓存 " + cacheRate.toFixed(1) + "%" : null,
+        };
+      });
       return tooltipHtml(params[0]?.axisValue || "", rows);
     };
     // tooltip 保持在图表容器内但不强制裁剪，避免多出滚动条
@@ -4945,7 +4963,10 @@
           <span style="width:12px;height:12px;border-radius:2px;background:${row.color};display:inline-block;"></span>
           <span>${escapeHtml(row.label)}</span>
         </span>
-        <span style="font-variant-numeric:tabular-nums;color:rgb(var(--ds-rgb-label-2));">${escapeHtml(row.value)}</span>
+        <span style="display:flex;align-items:center;gap:6px;">
+          <span style="font-variant-numeric:tabular-nums;color:rgb(var(--ds-rgb-label-2));">${escapeHtml(row.value)}</span>
+          ${row.extra ? `<span style="font-variant-numeric:tabular-nums;color:rgb(var(--ds-rgb-label-3, 153 153 153));font-size:11px;">${escapeHtml(row.extra)}</span>` : ""}
+        </span>
       </div>
     `).join("");
     return `
