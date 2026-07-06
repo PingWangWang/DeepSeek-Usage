@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.12.1
+// @version      1.12.2
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -4997,6 +4997,29 @@
     ][index % 16];
   }
 
+  /**
+   * 补全 sortedDates 数组，确保从当月1号到当天（或月末）的每一天都存在
+   * @param {string[]} dates - 日期数组 "YYYY-MM-DD"，会被原地修改
+   * @param {number} year - 年份（四位）
+   * @param {number} month - 月份（1-12，1 基）
+   */
+  function fillDateRange(dates, year, month) {
+    const now = new Date();
+    const isCurrentMonth = year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
+    const endDay = isCurrentMonth
+      ? now.getUTCDate()
+      : new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const existing = new Set(dates);
+    var prefix = year + "-" + String(month).padStart(2, "0");
+    for (var d = 1; d <= endDay; d++) {
+      var dateStr = prefix + "-" + String(d).padStart(2, "0");
+      if (!existing.has(dateStr)) {
+        dates.push(dateStr);
+      }
+    }
+    dates.sort();
+  }
+
   function tooltipHtml(title, rows) {
     const body = rows.map((row) => `
       <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;color:rgb(var(--ds-rgb-label-2));font-size:var(--ds-font-size-sp);line-height:var(--ds-line-height-sp);">
@@ -5420,6 +5443,8 @@
         }
       }
       const sortedDates = Array.from(allDates).sort();
+      // 补全从本月1号到当天（或月末）的所有日期，确保无数据日也出现在图表横坐标中
+      fillDateRange(sortedDates, year, month);
       // 构建每 key 每日系列数据
       var dailySerieMap = {};
       for (const [pairKey, dd] of Object.entries(dailyDetailMap)) {
