@@ -3535,8 +3535,17 @@
       if (eidx !== null && eidx !== undefined && state.subscriptions[eidx]) {
         Object.assign(state.subscriptions[eidx], formData);
         state.subscriptions[eidx].lastSentStatus = null;
-        state.subscriptions[eidx].lastSentAt = null;  // [修改] 编辑结束清空发送记录，允许重新计算倒计时并发送
-        delete state.subscriptionLastSent[state.subscriptions[eidx].id];
+        // [修改] 编辑保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
+        var _now = new Date();
+        var _subMin = formData.scheduleHour * 60 + formData.scheduleMinute;
+        var _nowMin = _now.getHours() * 60 + _now.getMinutes();
+        if (formData.scheduleType !== "interval" && _nowMin >= _subMin) {
+          state.subscriptions[eidx].lastSentAt = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 0, 0, 0).toISOString();
+          state.subscriptionLastSent[state.subscriptions[eidx].id] = state.subscriptions[eidx].lastSentAt;
+        } else {
+          state.subscriptions[eidx].lastSentAt = null;
+          delete state.subscriptionLastSent[state.subscriptions[eidx].id];
+        }
       } else {
         formData.id = createSubscriptionId();
         formData.createdAt = new Date().toISOString();
@@ -3663,8 +3672,17 @@
         if (eidx !== null && eidx !== undefined && state.subscriptions[eidx]) {
           Object.assign(state.subscriptions[eidx], formData);
           state.subscriptions[eidx].lastSentStatus = null;
-          state.subscriptions[eidx].lastSentAt = null;  // [修改] 编辑结束清空发送记录，允许重新计算倒计时并发送
-          delete state.subscriptionLastSent[state.subscriptions[eidx].id];
+          // [修改] 编辑保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
+          var _now = new Date();
+          var _subMin = formData.scheduleHour * 60 + formData.scheduleMinute;
+          var _nowMin = _now.getHours() * 60 + _now.getMinutes();
+          if (formData.scheduleType !== "interval" && _nowMin >= _subMin) {
+            state.subscriptions[eidx].lastSentAt = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 0, 0, 0).toISOString();
+            state.subscriptionLastSent[state.subscriptions[eidx].id] = state.subscriptions[eidx].lastSentAt;
+          } else {
+            state.subscriptions[eidx].lastSentAt = null;
+            delete state.subscriptionLastSent[state.subscriptions[eidx].id];
+          }
         } else {
           formData.id = createSubscriptionId();
           formData.createdAt = new Date().toISOString();
