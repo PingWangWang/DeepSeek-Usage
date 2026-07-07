@@ -2,14 +2,14 @@
 
 > 本项目基于 [DeepSeek Usage+](https://greasyfork.org/zh-CN/scripts/578066-deepseek-usage-%E5%AE%98%E6%96%B9api%E7%94%A8%E9%87%8F%E9%A1%B5%E5%A2%9E%E5%BC%BA%E4%BB%AA%E8%A1%A8%E7%9B%98) 修改扩展，为 DeepSeek API 用量页（platform.deepseek.com/usage）注入完整的数据分析仪表盘，并可在对话页快速跳转。
 
-[![Version](https://img.shields.io/badge/version-1.12.2-blue)]()
+[![Version](https://img.shields.io/badge/version-1.14.0-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-supported-orange)]()
 
 ## ✨ 项目亮点
 
 - **一键安装，开箱即用**：Tampermonkey 用户脚本，安装即可在用量页看到扩展面板，无需任何配置
-- **订阅推送**：支持定时向钉钉/飞书/企业微信 Webhook 推送用量报告（Markdown 或截图+ImgBB 图床），无需后端服务；支持多订阅、批量管理、多 Key 筛选、多选删除
+- **订阅推送**：支持定时向钉钉/飞书/企业微信 Webhook 推送用量报告（Markdown 或截图+ImgBB/PicGo 图床），无需后端服务；支持多订阅、批量管理、多 Key 筛选、多选删除
 - **费用、Token、缓存全掌握**：当日费用、月度费用、均价、当月可用 Tokens，一目了然
 - **交互图表驱动分析**：基于 ECharts 实现请求趋势、Token 构成、缓存命中率、模型分布等 7 张交互图表
 - **Key 级明细账单**：支持从 DeepSeek 导出 ZIP 导入 Key 级别的用量和费用数据，含堆叠条形图和模型细分
@@ -98,8 +98,8 @@
 在扩展用量面板顶部工具栏新增 **订阅** 按钮，支持定时推送用量报告：
 
 - **接收方式**：钉钉 / 飞书 / 企业微信 Webhook、复制到剪贴板、面板内预览
-- **内容格式**：Markdown 文本或截图（自动上传 ImgBB 图床，在消息中嵌入图片链接）
-- **ImgBB 集成**：截图模式下需在订阅配置中填写 ImgBB API Key（免费注册 api.imgbb.com），上传失败自动降级为 Markdown
+- **内容格式**：Markdown 文本或截图（自动上传 ImgBB/PicGo 图床，在消息中嵌入图片链接）
+- **ImgBB / PicGo 集成**：截图模式下可选择 ImgBB（国际）或 PicGo（国内推荐）图床，在订阅配置中填写对应 API Key，上传失败自动降级为 Markdown。支持一键测试图床连通性
 - **发送频率**：间隔（自定义分钟数）、每天、每周、每月
 - **内容定制**：可选择包含费用摘要、Token 构成、缓存命中率、Key 明细、Top N Key 等
 - **Key 筛选**：可针对特定 API Key 生成报告

@@ -2,8 +2,8 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.12.2
-// @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
+// @version      1.14.0
+// @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
 // @match        https://platform.deepseek.com/*
@@ -15,6 +15,7 @@
 // @updateURL    https://raw.githubusercontent.com/PingWangWang/DeepSeek-Usage/main/DeepSeek-Usage.meta.js
 // @supportURL   https://github.com/PingWangWang/DeepSeek-Usage/issues
 // @connect      oapi.dingtalk.com
+// @connect      www.picgo.net
 // @license      MIT
 // ==/UserScript==
 
@@ -30,6 +31,7 @@
     promptMiss: "PROMPT_CACHE_MISS_TOKEN",
     promptHit: "PROMPT_CACHE_HIT_TOKEN",
   };
+
 
   const state = {
     selectedPeriod: "",
@@ -2238,7 +2240,9 @@
       scheduleDayOfWeek: 1,
       scheduleDayOfMonth: 1,
       contentFormat: "markdown",
-    imgbbApiKey: "",
+      imageHosting: "imgbb",
+      imgbbApiKey: "",
+      picgoApiKey: "",
       contentOptions: {
         summary: true,
         tokenComposition: true,
@@ -2537,11 +2541,17 @@
 
     let markdown;
     if (sub.contentFormat === "screenshot") {
-      if (sub.imgbbApiKey && sub.imgbbApiKey.trim()) {
-        // 截图 + ImgBB 上传
+      var apiKey = sub.imageHosting === "picgo" ? (sub.picgoApiKey || "") : (sub.imgbbApiKey || "");
+      if (apiKey && apiKey.trim()) {
+        // 截图 + 图床上传
         const screenshotResult = await captureReportScreenshot(sub, reportData);
         if (screenshotResult.success) {
-          const uploadResult = await uploadScreenshot(screenshotResult.imageBlob, sub.imgbbApiKey);
+          var uploadResult;
+          if (sub.imageHosting === "picgo") {
+            uploadResult = await uploadToPicgo(screenshotResult.imageBlob, apiKey);
+          } else {
+            uploadResult = await uploadScreenshot(screenshotResult.imageBlob, apiKey);
+          }
           if (uploadResult.success) {
             // 截图模式：只发送截图，不附带 Markdown 文本
             return sendReportText(sub, "![](" + uploadResult.url + ")");
@@ -2623,12 +2633,14 @@
         url: url,
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify(payload),
-        timeout: 15000,
+        timeout: 30000,
         onload: function (resp) {
           try {
             var result = JSON.parse(resp.responseText);
             if (sub.webhookType === "dingtalk") {
               if (result.errcode === 0) { resolve({ success: true, verified: true }); return; }
+              // [修改] errcode -1 (系统繁忙) 视为成功发送，钉钉会延迟推送但消息已入队
+              if (result.errcode === -1) { resolve({ success: true, verified: true, note: "钉钉系统繁忙，消息已入队" }); return; }
               resolve({ success: false, error: decodeDingtalkError(result.errcode, result.errmsg), httpStatus: resp.status });
               return;
             }
@@ -2648,7 +2660,7 @@
           }
         },
         onerror: function () { console.error("[DeepSeek Usage Panel Plus] Webhook 请求失败: 网络错误"); resolve({ success: false, error: "请求失败: 网络错误" }); },
-        ontimeout: function () { console.error("[DeepSeek Usage Panel Plus] Webhook 请求超时"); resolve({ success: false, error: "请求超时（15秒）" }); },
+        ontimeout: function () { console.error("[DeepSeek Usage Panel Plus] Webhook 请求超时"); resolve({ success: false, error: "请求超时（30秒）" }); },
       });
     });
   }
@@ -2881,6 +2893,53 @@
     }
     return { success: false, error: "ImgBB 上传失败（已重试 " + maxRetries + " 次）" };
   }
+
+  /**
+   * 上传截图到 PicGo（picgo.net）免费图床
+   * @param {Blob} imageBlob - 截图 Blob
+   * @param {string} apiKey - PicGo API Key
+   * @returns {Promise<{success: boolean, url?: string, error?: string}>}
+   */
+  async function uploadToPicgo(imageBlob, apiKey) {
+    var base64 = await new Promise(function (res) {
+      var reader = new FileReader();
+      reader.onload = function () { res(reader.result.split(",")[1]); };
+      reader.readAsDataURL(imageBlob);
+    });
+    var maxRetries = 3;
+    for (var retry = 0; retry < maxRetries; retry++) {
+      if (retry > 0) await new Promise(function (r) { setTimeout(r, 2000); });
+      var result = await new Promise(function (resolve) {
+        GM.xmlHttpRequest({
+          method: "POST",
+          url: "https://www.picgo.net/api/1/upload",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          data: "source=" + encodeURIComponent(base64) + "&format=json&key=" + encodeURIComponent(apiKey),
+          timeout: 15000,
+          onload: function (resp) {
+            try {
+              var d = JSON.parse(resp.responseText);
+              if (d.status_code === 200 && d.image && d.image.url) {
+                resolve({ success: true, url: d.image.url });
+              } else {
+                resolve({ success: false, error: "PicGo 返回错误: " + (d.status_txt || "未知") });
+              }
+            } catch (e) {
+              resolve({ success: false, error: "解析响应失败: " + e.message });
+            }
+          },
+          onerror: function () { resolve({ success: false, error: "请求失败: 网络错误" }); },
+          ontimeout: function () { resolve({ success: false, error: "请求超时（15秒）" }); },
+        });
+      });
+      if (result.success && result.url) return { success: true, url: result.url };
+      if (retry < maxRetries - 1) {
+        console.log("[DeepSeek Usage Panel Plus] PicGo 上传失败，第 " + (retry + 1) + " 次重试...");
+      }
+    }
+    return { success: false, error: "PicGo 上传失败（已重试 " + maxRetries + " 次）" };
+  }
+
 
   function loadHtml2Canvas() {
     return new Promise((resolve, reject) => {
@@ -3154,14 +3213,26 @@
       </div>
     </div>`;
 
-    // ImgBB API Key（截图模式需要）
-    const imgbbDisplay = s.contentFormat === "screenshot" ? "" : "display:none;";
-    html += `<div id="sub-form-imgbb-group" style="${imgbbDisplay}">
+    // 图床配置（截图模式需要）
+    const hostingDisplay = s.contentFormat === "screenshot" ? "" : "display:none;";
+    html += `<div id="sub-form-hosting-group" style="${hostingDisplay}">
       <div class="dsapi-plus-subscribe-form-row">
-        <div class="dsapi-plus-subscribe-form-label">ImgBB Key</div>
+        <div class="dsapi-plus-subscribe-form-label">图床类型</div>
         <div class="dsapi-plus-subscribe-form-control">
-          <input type="text" id="sub-form-imgbb-key" value="${escapeHtml(s.imgbbApiKey || '')}" placeholder="在 imgbb.com 注册获取 API Key" style="width:100%;">
-          <div style="font-size:10px;color:var(--dsapi-plus-muted);margin-top:2px;">截图模式需要配置 ImgBB API Key，否则自动降级为 Markdown 文本</div>
+          <select id="sub-form-hosting">
+            <option value="imgbb" ${s.imageHosting === "imgbb" ? "selected" : ""}>ImgBB（国际）</option>
+            <option value="picgo" ${s.imageHosting === "picgo" ? "selected" : ""}>PicGo（国内推荐）</option>
+          </select>
+        </div>
+      </div>
+        <div class="dsapi-plus-subscribe-form-row">
+        <div class="dsapi-plus-subscribe-form-label" id="sub-form-hosting-key-label">API Key</div>
+        <div class="dsapi-plus-subscribe-form-control">
+          <div>
+            <input type="text" id="sub-form-hosting-key" value="${escapeHtml(s.imageHosting === "picgo" ? (s.picgoApiKey || '') : (s.imgbbApiKey || ''))}" placeholder="${s.imageHosting === "picgo" ? "在 picgo.net 注册获取 API Key" : "在 imgbb.com 注册获取 API Key"}" style="width:100%;">
+          </div>
+          <div id="sub-form-hosting-status" style="font-size:11px;margin-top:4px;min-height:16px;"></div>
+          <div style="font-size:10px;color:var(--dsapi-plus-muted);margin-top:2px;">截图模式需要配置图床 API Key，否则自动降级为 Markdown 文本</div>
         </div>
       </div>
     </div>`;
@@ -3464,26 +3535,19 @@
       if (eidx !== null && eidx !== undefined && state.subscriptions[eidx]) {
         Object.assign(state.subscriptions[eidx], formData);
         state.subscriptions[eidx].lastSentStatus = null;
-        // [修改] 编辑保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
-        var _now = new Date();
-        var _subMin = formData.scheduleHour * 60 + formData.scheduleMinute;
-        var _nowMin = _now.getHours() * 60 + _now.getMinutes();
-        if (formData.scheduleType !== "interval" && _nowMin >= _subMin) {
-          state.subscriptions[eidx].lastSentAt = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate(), 0, 0, 0).toISOString();
-          state.subscriptionLastSent[state.subscriptions[eidx].id] = state.subscriptions[eidx].lastSentAt;
-        } else {
-          state.subscriptions[eidx].lastSentAt = null;
-          delete state.subscriptionLastSent[state.subscriptions[eidx].id];
-        }
-        saveSubscriptionLastSent();
+        state.subscriptions[eidx].lastSentAt = null;  // [修改] 编辑结束清空发送记录，允许重新计算倒计时并发送
+        delete state.subscriptionLastSent[state.subscriptions[eidx].id];
       } else {
         formData.id = createSubscriptionId();
         formData.createdAt = new Date().toISOString();
+        formData.lastSentAt = new Date().toISOString(); // 新订阅标记已发送，防止定时器立即触发
         state.subscriptions.push(formData);
       }
+      saveSubscriptionLastSent();
       saveSubscriptions();
       updateSubscribeBtnState();
-      checkSubscriptionSchedule();
+      // [修改] 编辑结束立即更新倒计时显示，让用户看到新的计划时间
+      updateSubscriptionCountdowns();
       refreshSubscribeInlineContent();
     };
     mainP._subCancel = function() {
@@ -3541,7 +3605,9 @@
       webhookUrl: getName("#sub-form-webhook-url"),
       webhookSecret: getName("#sub-form-webhook-secret"),
       contentFormat: getName("#sub-form-format"),
-      imgbbApiKey: getName("#sub-form-imgbb-key"),
+      imageHosting: getName("#sub-form-hosting"),
+      imgbbApiKey: getName("#sub-form-hosting") === "picgo" ? "" : getName("#sub-form-hosting-key"),
+      picgoApiKey: getName("#sub-form-hosting") === "picgo" ? getName("#sub-form-hosting-key") : "",
       keyFilterMode: getName("#sub-form-key-mode"),
       selectedKeys: getChecked("#sub-form-keys input[type='checkbox']"),
       scheduleType: stype,
@@ -3596,18 +3662,20 @@
         var eidx = panel ? panel._currentFormIndex : null;
         if (eidx !== null && eidx !== undefined && state.subscriptions[eidx]) {
           Object.assign(state.subscriptions[eidx], formData);
-          state.subscriptions[eidx].lastSentAt = null;
           state.subscriptions[eidx].lastSentStatus = null;
+          state.subscriptions[eidx].lastSentAt = null;  // [修改] 编辑结束清空发送记录，允许重新计算倒计时并发送
           delete state.subscriptionLastSent[state.subscriptions[eidx].id];
-          saveSubscriptionLastSent();
         } else {
           formData.id = createSubscriptionId();
           formData.createdAt = new Date().toISOString();
+          formData.lastSentAt = new Date().toISOString(); // 新订阅标记已发送，防止定时器立即触发
           state.subscriptions.push(formData);
         }
+        saveSubscriptionLastSent();
         saveSubscriptions();
         updateSubscribeBtnState();
-        checkSubscriptionSchedule();
+        // [修改] 编辑结束立即更新倒计时显示，让用户看到新的计划时间
+        updateSubscriptionCountdowns();
         hideStaticForm();
       });
     }
@@ -3622,8 +3690,25 @@
     var formatSelect = formEl.querySelector("#sub-form-format");
     if (formatSelect) {
       formatSelect.addEventListener("change", function() {
-        var imgbbGroup = formEl.querySelector("#sub-form-imgbb-group");
-        if (imgbbGroup) imgbbGroup.style.display = formatSelect.value === "screenshot" ? "" : "none";
+        var hostingGroup = formEl.querySelector("#sub-form-hosting-group");
+        if (hostingGroup) hostingGroup.style.display = formatSelect.value === "screenshot" ? "" : "none";
+      });
+    }
+    // 图床类型切换
+    var hostingSelect = formEl.querySelector("#sub-form-hosting");
+    if (hostingSelect) {
+      hostingSelect.addEventListener("change", function() {
+        var keyInput = formEl.querySelector("#sub-form-hosting-key");
+        var label = formEl.querySelector("#sub-form-hosting-key-label");
+        var statusEl = formEl.querySelector("#sub-form-hosting-status");
+        if (statusEl) statusEl.textContent = "";
+        if (hostingSelect.value === "picgo") {
+          if (label) label.textContent = "PicGo Key";
+          if (keyInput) keyInput.placeholder = "在 picgo.net 注册获取 API Key";
+        } else {
+          if (label) label.textContent = "ImgBB Key";
+          if (keyInput) keyInput.placeholder = "在 imgbb.com 注册获取 API Key";
+        }
       });
     }
     // Key 筛选模式切换
@@ -3710,16 +3795,17 @@
 
   function startSubscriptionCheckTimer() {
     stopSubscriptionCheckTimer();
-    // 延迟 500ms 后首次检查，确保页面已就绪
-    setTimeout(function () { checkSubscriptionSchedule(); }, 500);
-    // 使用递归 setTimeout 替代 setInterval，避免某次执行异常导致后续检查停止
+    // 首次 500ms 后检查，后续每 30 秒递归（统一 tracking，防止重复）
     function scheduleNext() {
       state.subscriptionCheckTimer = setTimeout(function () {
         try { checkSubscriptionSchedule(); } catch (e) { console.error("[DeepSeek Usage Panel Plus] 订阅检查异常:", e); }
         scheduleNext();
       }, 30000);
     }
-    scheduleNext();
+    state.subscriptionCheckTimer = setTimeout(function () {
+      try { checkSubscriptionSchedule(); } catch (e) { console.error("[DeepSeek Usage Panel Plus] 订阅检查初始异常:", e); }
+      scheduleNext();
+    }, 500);
   }
 
   function stopSubscriptionCheckTimer() {
@@ -3729,9 +3815,14 @@
     }
   }
 
+  var _checkingSubscription = false;
+
   async function checkSubscriptionSchedule() {
-    const now = new Date();
-    for (const sub of state.subscriptions) {
+    if (_checkingSubscription) return;
+    _checkingSubscription = true;
+    try {
+      const now = new Date();
+      for (const sub of state.subscriptions) {
       if (!sub.enabled) continue;
       const lastSent = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
       if (shouldSendNow(sub, now, lastSent)) {
@@ -3750,15 +3841,24 @@
           }
           saveSubscriptions();
           saveSubscriptionLastSent();
+          // [修改] 发送完成后刷新 UI，确保倒计时和状态显示同步更新
+          updateSubscriptionCountdowns();
+          refreshSubscribeInlineContent();
         }).catch(function (err) {
           console.error("[DeepSeek Usage Panel Plus] 订阅发送异常:", sub.name, err);
           // 发送异常时不记录 lastSent，允许下次重试
         });
       }
     }
+    } finally {
+      _checkingSubscription = false;
+    }
   }
 
   function shouldSendNow(sub, now, lastSent) {
+    // [修改] 防抖：同一订阅 10 秒内已发送，skip 本次（避免高频调用钉钉限流）
+    if (lastSent && (now.getTime() - lastSent.getTime()) < 10000) return false;
+
     var subMinHour = sub.scheduleHour * 60 + sub.scheduleMinute;
     var nowMinHour = now.getHours() * 60 + now.getMinutes();
 
@@ -3768,26 +3868,12 @@
         return (now.getTime() - lastSent.getTime()) >= sub.scheduleInterval;
       case "daily":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
-        // 新订阅或从未发送时，仅在今天计划时间已到且还未发过的情况下发送
-        if (!lastSent) {
-          // 距离计划时间不足 60 秒（刚设置）时，说明是新建后首次检查，不应立即发送
-          var diff = now.getTime() - new Date(sub.createdAt || now).getTime();
-          if (diff < 120000) return false; // 2 分钟内不发送
-        }
         return nowMinHour >= subMinHour;
       case "weekly":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
-        if (!lastSent) {
-          var diff = now.getTime() - new Date(sub.createdAt || now).getTime();
-          if (diff < 120000) return false;
-        }
         return now.getDay() === sub.scheduleDayOfWeek && nowMinHour >= subMinHour;
       case "monthly":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
-        if (!lastSent) {
-          var diff = now.getTime() - new Date(sub.createdAt || now).getTime();
-          if (diff < 120000) return false;
-        }
         return now.getDate() === sub.scheduleDayOfMonth && nowMinHour >= subMinHour;
       default:
         return false;
