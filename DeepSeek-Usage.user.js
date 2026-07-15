@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.25.0
+// @version      1.26.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -489,7 +489,7 @@
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
+        font-size: 12px;
         line-height: 18px;
         padding: 4px 2px;
         min-width: 64px;
@@ -626,7 +626,7 @@
         border-radius: 4px;
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
+        font-size: 12px;
         line-height: 18px;
         white-space: nowrap;
         opacity: 0.7;
@@ -727,7 +727,7 @@
         height: 20px;
         border-radius: 4px;
         cursor: pointer;
-        font-size: 14px;
+        font-size: 12px;
         line-height: 1;
         padding: 0;
         display: inline-flex;
@@ -1246,7 +1246,7 @@
         border: none;
         background: transparent;
         cursor: pointer;
-        font-size: 22px;
+        font-size: 12px;
         line-height: 1;
         color: var(--dsapi-plus-muted);
         padding: 4px 8px;
@@ -1365,7 +1365,7 @@
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
+        font-size: 12px;
         padding: 3px 8px;
         opacity: 0.7;
         transition: opacity 0.15s;
@@ -1387,7 +1387,7 @@
         color:var(--dsapi-plus-muted);
         cursor:pointer;
         font:inherit;
-        font-size:11px;
+        font-size:12px;
         line-height:18px;
         padding:4px 6px;
         opacity:0.7;
@@ -4164,8 +4164,8 @@
                 <button type="button" class="dsapi-plus-key-filter-btn">筛选${state.keyFilter && state.keyFilter.mode === 'selected' && state.keyFilter.keys?.length ? ` (${state.keyFilter.keys.length})` : ''}</button>
                 <div class="dsapi-plus-key-filter-dropdown" style="display:none;position:absolute;top:100%;right:0;z-index:1000;background:var(--dsapi-plus-bg,#fff);border:1px solid var(--dsapi-plus-muted);border-radius:6px;padding:6px;min-width:160px;max-height:260px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
                   <div style="display:flex;gap:4px;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid var(--dsapi-plus-muted);">
-                    <button type="button" class="dsapi-plus-filter-all-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:11px;padding:3px 6px;">全选</button>
-                    <button type="button" class="dsapi-plus-filter-none-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:11px;padding:3px 6px;">全取消</button>
+                    <button type="button" class="dsapi-plus-filter-all-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:12px;padding:3px 6px;">全选</button>
+                    <button type="button" class="dsapi-plus-filter-none-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:12px;padding:3px 6px;">全取消</button>
                   </div>
                   <div class="dsapi-plus-filter-list"></div>
                 </div>
