@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.14.2
+// @version      1.14.3
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -5069,7 +5069,9 @@
     option.grid.right = 16;
     option.xAxis.data = dailyData.dates;
     option.tooltip.formatter = (params) => {
-      const rows = params.map((p, i) => {
+      // 绑定原始索引后按当日总费用降序排序，使 tooltip 优先展示当日消费最高的 Key
+      const sorted = params.map((p, i) => ({ p, i })).sort((a, b) => b.p.value - a.p.value);
+      const rows = sorted.map(({ p, i }) => {
         // 从同索引的 miss/hit 数组中取当日值计算缓存命中率
         var missVal = 0, hitVal = 0, cacheRate = null;
         if (dailyData.miss && dailyData.miss[i] && dailyData.hit && dailyData.hit[i]) {
