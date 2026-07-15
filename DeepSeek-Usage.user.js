@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.35.0
+// @version      1.36.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -4187,7 +4187,6 @@
           <div class="dsapi-plus-section-head">
             <div class="dsapi-plus-section-title">🔑 Key 明细</div>
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
-            <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
               <div class="dsapi-plus-key-filter-wrap" style="position:relative;">
                 <button type="button" class="dsapi-plus-key-filter-btn">筛选密钥${state.keyFilter && state.keyFilter.mode === 'selected' && state.keyFilter.keys?.length ? ` (${state.keyFilter.keys.length})` : ''}</button>
