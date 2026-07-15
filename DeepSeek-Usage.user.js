@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.23.0
+// @version      1.25.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -435,16 +435,17 @@
       .dsapi-plus-period-select {
         background: transparent;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
+        border-radius: 6px;
         color: var(--dsapi-plus-muted);
         font: inherit;
         font-size: 12px;
-        line-height: 18px;
-        padding: 2px 4px;
+        height: 28px;
+        padding: 0 8px;
         cursor: pointer;
         outline: none;
         opacity: 0.7;
         transition: none;
+        box-sizing: border-box;
       }
       .dsapi-plus-period-select:hover,
       .dsapi-plus-period-select:focus {
@@ -468,14 +469,10 @@
       .dsapi-plus-refresh {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -488,7 +485,6 @@
       .dsapi-plus-toggle-section-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
@@ -497,7 +493,6 @@
         line-height: 18px;
         padding: 4px 2px;
         min-width: 64px;
-        text-align: center;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -516,14 +511,10 @@
       .dsapi-plus-toggle-native-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -546,14 +537,10 @@
       .dsapi-plus-group-model-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -572,14 +559,10 @@
       .dsapi-plus-auto-refresh-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -595,7 +578,7 @@
         border-color: #22c55e;
         background: rgba(34, 197, 94, 0.08);
       }
-      /* 所有按钮控件统一样式 */
+      /* 所有按钮控件统一样式：扁平风，统一高度 28px */
       .dsapi-plus-auto-refresh-btn,
       .dsapi-plus-toggle-section-btn,
       .dsapi-plus-toggle-key-btn,
@@ -608,20 +591,23 @@
       .dsapi-plus-subscribe-create-btn,
       .dsapi-plus-refresh,
       .dsapi-plus-clear-cache-btn {
-        min-width: 48px;
+        appearance: none;
+        box-sizing: border-box;
+        height: 28px;
+        min-width: 56px;
+        padding: 0 14px;
+        font-size: 12px;
+        line-height: 1;
+        border-radius: 6px;
         text-align: center;
       }
       .dsapi-plus-clear-cache-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.6;
         transition: none;
         white-space: nowrap;
@@ -658,14 +644,10 @@
       .dsapi-plus-daily-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -684,14 +666,10 @@
       .dsapi-plus-cost-chart-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -710,14 +688,10 @@
       .dsapi-plus-key-filter-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -1212,14 +1186,10 @@
       .dsapi-plus-subscribe-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -1287,14 +1257,10 @@
       .dsapi-plus-subscribe-create-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
-        font-size: 11px;
-        line-height: 18px;
-        padding: 4px 6px;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -1395,7 +1361,6 @@
       .dsapi-plus-subscribe-item-actions button {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
@@ -1538,13 +1503,15 @@
       .dsapi-plus-subscribe-form-actions button {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
-        border-radius: 4px;
+        border-radius: 6px;
+        box-sizing: border-box;
+        height: 28px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
         font: inherit;
         font-size: 12px;
-        padding: 5px 14px;
+        padding: 0 14px;
         transition: none;
       }
       .dsapi-plus-subscribe-form-actions button:hover {
@@ -4018,9 +3985,6 @@
       fallbackCost: monthCnyCost || monthlyCnyCost,
       fallbackTokens: tokenTotal || Number(summary.monthlyUsage || 0),
     });
-    const estimatedAvailableTokens = averageCostPerMillion > 0
-      ? Math.floor(walletCnyBalance / averageCostPerMillion * 1000000)
-      : 0;
     const averageCostDetail = `输入 ${formatCnyAmount(averageInputCostPerMillion)} /1M · 输出 ${formatCnyAmount(averageOutputCostPerMillion)} /1M`;
 
     const daysArr = amount.days;
@@ -4135,7 +4099,6 @@
           ${summaryItem("当月费用", monthCostText, "", costDetail)}
           ${summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
           ${summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail)}
-          ${isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : ""}
           ${summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "")}
         </div>
 
@@ -4247,7 +4210,6 @@
       averageCostLabel,
       averageCostPerMillion,
       averageCostDetail,
-      estimatedAvailableTokens,
       walletCnyBalance,
       updateTime,
       html,
@@ -4647,7 +4609,7 @@
   }
 
   function updatePanelIncremental(panel, panelData) {
-    const { period, amount, summary, cost, monthlyCostText, monthCostText, todayCostText, todayCostDetail, costDetail, usageDetail, sortedModels, sortedKeys, tokenTotal, isCurrentPeriod, averageCostLabel, averageCostPerMillion, averageCostDetail, estimatedAvailableTokens, walletCnyBalance, updateTime } = panelData;
+    const { period, amount, summary, cost, monthlyCostText, monthCostText, todayCostText, todayCostDetail, costDetail, usageDetail, sortedModels, sortedKeys, tokenTotal, isCurrentPeriod, averageCostLabel, averageCostPerMillion, averageCostDetail, walletCnyBalance, updateTime } = panelData;
 
     const periodSelect = panel.querySelector(".dsapi-plus-period-select");
     const status = panel.querySelector(".dsapi-plus-status");
@@ -4662,7 +4624,6 @@
         summaryItem("当月费用", monthCostText, "", costDetail) +
         summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
         summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail) +
-        (isCurrentPeriod ? summaryItem("预估可用", estimatedAvailableTokens ? formatInteger(estimatedAvailableTokens) : "无法估算", estimatedAvailableTokens ? "Tokens" : "") : "") +
         summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "");
     }
 
