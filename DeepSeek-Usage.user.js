@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.29.0
+// @version      1.32.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -93,6 +93,7 @@
     subscriptionEditVisible: loadSubscriptionEditVisible(), // 编辑配置面板可见性
     subscriptionLastSent: loadSubscriptionLastSent(), // { subId: ISO时间戳 }
     subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
+    compactViewVisible: loadCompactViewVisible(), // 精简视图，默认 false
   };
 
   migrateSubscriptions();                         // 迁移旧版 contentOptions 字段
@@ -144,6 +145,17 @@
 
   function saveSubscriptionEditVisible() {
     try { localStorage.setItem("dsapi_plus_subscription_edit_visible", String(state.subscriptionEditVisible)); }
+    catch (e) { /* ignore */ }
+  }
+
+  function loadCompactViewVisible() {
+    try { return localStorage.getItem("dsapi_plus_compact_view") === "true"; }
+    catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function saveCompactViewVisible() {
+    try { localStorage.setItem("dsapi_plus_compact_view", String(state.compactViewVisible)); }
     catch (e) { /* ignore */ }
   }
 
@@ -530,6 +542,34 @@
         background: rgba(34, 197, 94, 0.08);
         border-style: solid;
       }
+      .dsapi-plus-toggle-compact-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        opacity: 0.7;
+        transition: none;
+        white-space: nowrap;
+      }
+      .dsapi-plus-toggle-compact-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+        border-style: solid;
+      }
+      .dsapi-plus-toggle-compact-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+        border-style: solid;
+      }
+      /* 精简视图：隐藏订阅区和主体内容 */
+      .dsapi-plus-panel.compact .dsapi-plus-subscribe-section,
+      .dsapi-plus-panel.compact .dsapi-plus-body {
+        display: none !important;
+      }
       .dsapi-plus-group-model-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
@@ -572,11 +612,53 @@
         border-color: #22c55e;
         background: rgba(34, 197, 94, 0.08);
       }
+      .dsapi-plus-auto-refresh-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        z-index: 1000;
+        background: var(--dsapi-plus-bg, #fff);
+        border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 6px;
+        padding: 4px;
+        min-width: 100px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        display: none;
+      }
+      .dsapi-plus-auto-refresh-dropdown button {
+        display: block;
+        width: 100%;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        padding: 6px 12px;
+        border-radius: 4px;
+        text-align: left;
+        font-size: 12px;
+        white-space: nowrap;
+        color: var(--dsapi-plus-text);
+      }
+      .dsapi-plus-auto-refresh-dropdown button:hover {
+        background: rgba(2, 14, 54, 0.05);
+      }
+      .dsapi-plus-auto-refresh-dropdown button.active {
+        background: rgba(34, 197, 94, 0.1);
+        color: #22c55e;
+        font-weight: 600;
+      }
+      body.dark .dsapi-plus-auto-refresh-dropdown {
+        background: #1a1a2e;
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+      body.dark .dsapi-plus-auto-refresh-dropdown button:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
       /* 所有按钮控件统一样式：扁平风，统一高度 28px */
       .dsapi-plus-auto-refresh-btn,
       .dsapi-plus-toggle-section-btn,
       .dsapi-plus-toggle-key-btn,
       .dsapi-plus-toggle-native-btn,
+      .dsapi-plus-toggle-compact-btn,
       .dsapi-plus-group-model-btn,
       .dsapi-plus-daily-btn,
       .dsapi-plus-key-filter-btn,
@@ -928,6 +1010,16 @@
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
       }
+      body.dark .dsapi-plus-toggle-compact-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+        border-style: solid;
+      }
+      body.dark .dsapi-plus-toggle-compact-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
+      }
       body.dark .dsapi-plus-toggle-key-btn.active {
         color: #4ade80;
         border-color: #4ade80;
@@ -1080,6 +1172,7 @@
         .dsapi-plus-daily-btn,
         .dsapi-plus-key-filter-btn,
         .dsapi-plus-toggle-native-btn,
+      .dsapi-plus-toggle-compact-btn,
         .dsapi-plus-refresh,
         .dsapi-plus-auto-refresh-btn {
           font-size: 10px;
@@ -1123,6 +1216,7 @@
         .dsapi-plus-daily-btn,
         .dsapi-plus-key-filter-btn,
         .dsapi-plus-toggle-native-btn,
+      .dsapi-plus-toggle-compact-btn,
         .dsapi-plus-refresh,
         .dsapi-plus-auto-refresh-btn {
           font-size: 9px;
@@ -4055,8 +4149,14 @@
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
-          <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;" title="当前间隔：${getAutoRefreshLabel(state.autoRefreshInterval)}">自动刷新数据</button>
+          <div class="dsapi-plus-auto-refresh-wrap" style="position:relative;display:inline-block;">
+            <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;">自动刷新</button>
+            <div class="dsapi-plus-auto-refresh-dropdown">
+              ${AUTO_REFRESH_INTERVALS.map(i => `<button type="button" data-value="${i.value}"${state.autoRefreshInterval === i.value ? ' class="active"' : ''}>${i.label}</button>`).join('')}
+            </div>
+          </div>
           <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原始视图</button>
+          <button type="button" class="dsapi-plus-toggle-compact-btn${state.compactViewVisible ? ' active' : ''}" style="margin-left:4px;">精简视图</button>
           <button type="button" class="dsapi-plus-clear-cache-btn" style="margin-left:4px;">清除缓存</button>
           <button type="button" class="dsapi-plus-refresh">刷新数据</button>
         </div>
@@ -6130,6 +6230,21 @@
       });
     }
 
+    // 精简视图切换
+    const compactBtn = panel.querySelector(".dsapi-plus-toggle-compact-btn");
+    if (compactBtn) {
+      compactBtn.addEventListener("click", () => {
+        state.compactViewVisible = !state.compactViewVisible;
+        saveCompactViewVisible();
+        compactBtn.classList.toggle("active", state.compactViewVisible);
+        panel.classList.toggle("compact", state.compactViewVisible);
+      });
+      // 初始化恢复状态
+      if (state.compactViewVisible) {
+        panel.classList.add("compact");
+      }
+    }
+
     // 清除缓存
     var clearBtn = panel.querySelector(".dsapi-plus-clear-cache-btn");
     if (clearBtn) {
@@ -6146,6 +6261,7 @@
           "dsapi_plus_key_daily_visible",
           "dsapi_plus_subscriptions",
           "dsapi_plus_subscription_last_sent",
+          "dsapi_plus_compact_view",
         ];
         for (var ki = 0; ki < keys.length; ki++) {
           try { localStorage.removeItem(keys[ki]); } catch (e) { /* ignore */ }
@@ -6154,17 +6270,47 @@
       });
     }
 
-    // 自动刷新数据切换
-    const autoRefreshBtn = panel.querySelector(".dsapi-plus-auto-refresh-btn");
-    if (autoRefreshBtn) {
-      autoRefreshBtn.addEventListener("click", () => {
-        state.autoRefreshInterval = nextAutoRefreshInterval(state.autoRefreshInterval);
+    // 自动刷新 — 下拉浮层选择
+    const autoRefreshWrap = panel.querySelector(".dsapi-plus-auto-refresh-wrap");
+    if (autoRefreshWrap) {
+      const autoRefreshBtn = autoRefreshWrap.querySelector(".dsapi-plus-auto-refresh-btn");
+      const dropdown = autoRefreshWrap.querySelector(".dsapi-plus-auto-refresh-dropdown");
+
+      // 按钮点击 toggle 浮层
+      autoRefreshBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isOpening = dropdown.style.display !== "block";
+        dropdown.style.display = isOpening ? "block" : "none";
+        // 每次展开时同步高亮当前选中值
+        if (isOpening) {
+          dropdown.querySelectorAll("button[data-value]").forEach(b => {
+            b.classList.toggle("active", parseInt(b.dataset.value, 10) === state.autoRefreshInterval);
+          });
+        }
+      });
+
+      // 点击 wrap 内部不触发 document 关闭
+      autoRefreshWrap.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+
+      // 选项点击
+      dropdown.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-value]");
+        if (!btn) return;
+        const value = parseInt(btn.dataset.value, 10);
+        state.autoRefreshInterval = value;
         saveAutoRefreshInterval();
         applyAutoRefresh();
-        autoRefreshBtn.textContent = `自动刷新数据 ${getAutoRefreshLabel(state.autoRefreshInterval)}`;
-        autoRefreshBtn.classList.toggle("active", state.autoRefreshInterval > 0);
+        autoRefreshBtn.classList.toggle("active", value > 0);
+        dropdown.style.display = "none";
+        // 更新浮层内 active 高亮
+        dropdown.querySelectorAll("button[data-value]").forEach(b => {
+          b.classList.toggle("active", parseInt(b.dataset.value, 10) === value);
+        });
       });
-      // 初始化时应用保存的自动刷新数据状态（直接读取 localStorage 确保一致性）
+
+      // 初始化时恢复上次保存的状态
       const savedInterval = (() => {
         try {
           return parseInt(localStorage.getItem("dsapi_plus_auto_refresh"), 10) || 0;
@@ -6172,11 +6318,21 @@
       })();
       if (savedInterval > 0 && AUTO_REFRESH_INTERVALS.some((i) => i.value === savedInterval)) {
         state.autoRefreshInterval = savedInterval;
-        autoRefreshBtn.textContent = `自动刷新数据 ${getAutoRefreshLabel(savedInterval)}`;
         autoRefreshBtn.classList.add("active");
         applyAutoRefresh();
+        // 同步下拉选项高亮
+        dropdown.querySelectorAll("button[data-value]").forEach(b => {
+          b.classList.toggle("active", parseInt(b.dataset.value, 10) === savedInterval);
+        });
       }
     }
+
+    // 点击页面其他位置关闭浮层（使用 capture 阶段确保捕获）
+    document.addEventListener("click", function closeAutoRefreshDropdown(e) {
+      document.querySelectorAll(".dsapi-plus-auto-refresh-dropdown").forEach(function(d) {
+        if (d.style.display !== "none") d.style.display = "none";
+      });
+    });
 
     // 月份下拉选择
     const periodSelect = panel.querySelector(".dsapi-plus-period-select");
@@ -6277,6 +6433,8 @@
 
     // 每次确保面板时重新应用原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
+    // 每次确保面板时重新应用精简视图状态
+    if (state.compactViewVisible && panel) panel.classList.add("compact");
 
     return panel;
   }
