@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.14.1
+// @version      1.14.2
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -1330,6 +1330,54 @@
         margin: 0;
         accent-color: #22c55e;
       }
+      /* ===== Toggle Switch 开关样式 ===== */
+      .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: #b0b0b0;
+        transition: .25s;
+        border-radius: 20px;
+      }
+      .toggle-slider::before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 2px;
+        bottom: 2px;
+        background-color: #fff;
+        transition: .25s;
+        border-radius: 50%;
+      }
+      .toggle-switch input:checked + .toggle-slider {
+        background-color: #22c55e;
+      }
+      .toggle-switch input:checked + .toggle-slider::before {
+        transform: translateX(16px);
+      }
+      /* 选择框弱化 */
+      .sub-select-check {
+        opacity: 0.35;
+        transition: opacity 0.2s;
+        cursor: pointer;
+      }
+      .sub-select-check:hover,
+      .sub-select-check:checked {
+        opacity: 1;
+      }
       .dsapi-plus-subscribe-item-meta {
         color: var(--dsapi-plus-muted);
         font-size: 11px;
@@ -1568,6 +1616,9 @@
       }
       body.dark .dsapi-plus-subscribe-panel-close:hover {
         color: #e0e0e0;
+      }
+      body.dark .toggle-slider {
+        background-color: #555;
       }
     `;
     document.head.appendChild(style);
@@ -3039,8 +3090,11 @@
         html += `<div class="dsapi-plus-subscribe-item" data-index="${i}">
           <div class="dsapi-plus-subscribe-item-head">
             <div class="dsapi-plus-subscribe-item-name">
-              <input type="checkbox" class="sub-select-check" data-index="${i}" onchange="var p=document.getElementById('${PANEL_ID}');if(p&&p._subSelectUpdate)p._subSelectUpdate();">
-              <input type="checkbox" ${s.enabled ? "checked" : ""} data-action="toggle" data-index="${i}">
+              <input type="checkbox" class="sub-select-check" data-index="${i}" title="选择以批量删除" onchange="var p=document.getElementById('${PANEL_ID}');if(p&&p._subSelectUpdate)p._subSelectUpdate();">
+              <label class="toggle-switch">
+                <input type="checkbox" ${s.enabled ? "checked" : ""} data-action="toggle" data-index="${i}">
+                <span class="toggle-slider"></span>
+              </label>
               <span>${escapeHtml(s.name)}</span>
               <span class="${statusClass}" style="font-size:11px;">${statusText}</span>
             </div>
