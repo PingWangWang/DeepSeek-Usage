@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.14.0
+// @version      1.14.1
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -89,6 +89,7 @@
     // 订阅功能
     subscriptions: loadSubscriptions(),           // 订阅配置数组
     subscriptionVisible: loadSubscriptionVisible(), // 订阅内嵌面板可见性
+    subscriptionEditVisible: loadSubscriptionEditVisible(), // 编辑面板可见性
     subscriptionLastSent: loadSubscriptionLastSent(), // { subId: ISO时间戳 }
     subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
   };
@@ -131,6 +132,17 @@
 
   function saveSubscriptionVisible() {
     try { localStorage.setItem("dsapi_plus_subscription_visible", String(state.subscriptionVisible)); }
+    catch (e) { /* ignore */ }
+  }
+
+  function loadSubscriptionEditVisible() {
+    try { return localStorage.getItem("dsapi_plus_subscription_edit_visible") === "true"; }
+    catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function saveSubscriptionEditVisible() {
+    try { localStorage.setItem("dsapi_plus_subscription_edit_visible", String(state.subscriptionEditVisible)); }
     catch (e) { /* ignore */ }
   }
 
@@ -3655,6 +3667,9 @@
     if (panel) {
       panel._currentFormIndex = editIndex !== undefined ? editIndex : null;
     }
+    // 记录编辑面板状态为展开
+    state.subscriptionEditVisible = true;
+    saveSubscriptionEditVisible();
     // 绑定表单内交互事件（保存/取消/下拉切换等）
     bindStaticFormEvents(formContainer);
   }
@@ -3784,6 +3799,9 @@
   function hideStaticForm() {
     var formContainer = document.getElementById("dsapi-plus-subscribe-form-static");
     if (formContainer) formContainer.style.display = "none";
+    // 记录编辑面板状态为折叠
+    state.subscriptionEditVisible = false;
+    saveSubscriptionEditVisible();
     // 恢复列表显示：刷新内联内容
     refreshSubscribeInlineContent();
   }
@@ -6117,7 +6135,7 @@
     // 初始化时应用原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
 
-    // 订阅按钮点击 → 打开订阅面板
+    // 订阅按钮点击 → 打开/关闭订阅面板
     const subscribeBtn = panel.querySelector(".dsapi-plus-subscribe-btn");
     if (subscribeBtn) {
       subscribeBtn.addEventListener("click", function () {
@@ -6125,6 +6143,7 @@
         saveSubscriptionVisible();
         subscribeBtn.classList.toggle("active", state.subscriptionVisible);
         var content = panel.querySelector(".dsapi-plus-subscribe-inline-content");
+        var formStatic = document.getElementById("dsapi-plus-subscribe-form-static");
         if (content) {
           if (state.subscriptionVisible) {
             content.style.display = "";
@@ -6133,8 +6152,17 @@
               content.appendChild(subPanel);
               bindSubscriptionPanelEvents(subPanel);
             }
+            // 恢复编辑面板状态：上次展开则同步展开，否则确保隐藏
+            if (state.subscriptionEditVisible && formStatic) {
+              var outerPanel = document.getElementById(PANEL_ID);
+              showStaticForm(outerPanel ? outerPanel._currentFormIndex : null);
+            } else if (formStatic) {
+              formStatic.style.display = "none";
+            }
           } else {
             content.style.display = "none";
+            // 关闭时同步隐藏编辑面板，但保留 subscriptionEditVisible 状态以便恢复
+            if (formStatic) formStatic.style.display = "none";
           }
         }
       });
