@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.14.3
+// @version      1.23.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -53,6 +53,7 @@
     tooltipKeeperPoint: null,
     pendingThemeUpdate: false,
     pendingPanelData: null,
+    pendingPanelDataTimer: 0, // 延迟更新超时句柄
     // Key 明细数据（从导出接口获取）
     keyDetailData: null,       // 按 key 聚合后的数据
     keyDetailLoading: false,   // 正在加载中
@@ -443,7 +444,7 @@
         cursor: pointer;
         outline: none;
         opacity: 0.7;
-        transition: opacity 0.15s;
+        transition: none;
       }
       .dsapi-plus-period-select:hover,
       .dsapi-plus-period-select:focus {
@@ -476,7 +477,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-refresh:hover {
@@ -498,7 +499,7 @@
         min-width: 64px;
         text-align: center;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-toggle-section-btn:hover {
@@ -524,7 +525,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
         white-space: nowrap;
@@ -554,7 +555,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-group-model-btn:hover {
@@ -580,7 +581,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-auto-refresh-btn:hover {
@@ -622,7 +623,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.6;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-clear-cache-btn:hover {
@@ -643,7 +644,7 @@
         line-height: 18px;
         white-space: nowrap;
         opacity: 0.7;
-        transition: opacity 0.15s;
+        transition: none;
       }
       .dsapi-plus-toggle-key-btn:hover {
         opacity: 1;
@@ -666,7 +667,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-daily-btn:hover {
@@ -692,7 +693,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-cost-chart-btn:hover {
@@ -718,7 +719,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-key-filter-btn:hover {
@@ -760,7 +761,7 @@
         justify-content: center;
         flex-shrink: 0;
         opacity: 0.5;
-        transition: opacity 0.15s;
+        transition: none;
       }
       .dsapi-plus-toggle-chart-btn:hover {
         opacity: 1;
@@ -1220,7 +1221,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-subscribe-btn:hover {
@@ -1295,7 +1296,7 @@
         line-height: 18px;
         padding: 4px 6px;
         opacity: 0.7;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
         white-space: nowrap;
       }
       .dsapi-plus-subscribe-create-btn:hover {
@@ -1544,7 +1545,7 @@
         font: inherit;
         font-size: 12px;
         padding: 5px 14px;
-        transition: opacity 0.15s, background 0.15s, color 0.15s;
+        transition: none;
       }
       .dsapi-plus-subscribe-form-actions button:hover {
         opacity: 1;
@@ -2204,6 +2205,9 @@
       </div>
       <div class="dsapi-plus-message">正在读取 DeepSeek 用量接口。</div>
     `;
+    // 重建后主动恢复鼠标交互，消除 hover 状态丢失导致的闪烁
+    panel.style.pointerEvents = "none";
+    requestAnimationFrame(() => { panel.style.pointerEvents = ""; });
     bindRefresh(panel);
   }
 
@@ -4256,7 +4260,8 @@
     state.lastPanelData = panelData;
     const expectedChartCount = panelData.sortedModels.length ? 6 : 5;
 
-    if (state.charts.length > 0 && state.charts.length === expectedChartCount) {
+    // 放宽条件：只要有 5 个以上图表就走增量路径，避免因预期计数微变触发全量重建
+    if (state.charts.length >= 5) {
       updatePanelIncremental(panel, panelData);
       updateChartsData(panelData);
       return;
@@ -4264,6 +4269,9 @@
 
     disposeCharts();
     panel.innerHTML = panelData.html;
+    // 重建后主动恢复鼠标交互，消除 hover 状态丢失导致的闪烁
+    panel.style.pointerEvents = "none";
+    requestAnimationFrame(() => { panel.style.pointerEvents = ""; });
     bindRefresh(panel);
     initCharts(panel, panelData);
     // 恢复记忆的 Key 明细数据
@@ -4556,7 +4564,7 @@
         return;
       }
       chart.dispatchAction({ type: "showTip", x: point[0], y: point[1] });
-    }, 250);
+    }, 2000);
   }
 
   function stopTooltipKeeper(instance) {
@@ -4607,6 +4615,10 @@
   }
 
   function flushPendingChartUpdates() {
+    if (state.pendingPanelDataTimer) {
+      clearTimeout(state.pendingPanelDataTimer);
+      state.pendingPanelDataTimer = 0;
+    }
     if (state.tooltipActive) return;
 
     if (state.pendingThemeUpdate && state.lastPanelData) {
@@ -4622,10 +4634,12 @@
   }
 
   function startThemeObserver() {
+    let themeTimer = 0;
     new MutationObserver((mutations) => {
       for (const m of mutations) {
         if (m.type === "attributes" && m.attributeName === "class") {
-          updateChartTheme();
+          window.clearTimeout(themeTimer);
+          themeTimer = window.setTimeout(updateChartTheme, 1000);
           break;
         }
       }
@@ -4723,10 +4737,25 @@
   function updateChartsData(panelData) {
     if (state.tooltipActive) {
       state.pendingPanelData = panelData;
+      // 5 秒后强制刷新，避免 tooltip 长时间阻塞数据更新
+      if (!state.pendingPanelDataTimer) {
+        state.pendingPanelDataTimer = setTimeout(() => {
+          state.pendingPanelDataTimer = 0;
+          state.tooltipActive = false;
+          flushPendingChartUpdates();
+        }, 5000);
+      }
       return;
     }
+    // keyDetail 相关图表（keyCost/keyDaily）由独立数据流管理，不由 panelData 驱动
+    const keyDetailKeys = new Set(['keyCost', 'keyDaily']);
     const remaining = [];
     for (const entry of state.charts) {
+      // 跳过 keyDetail 图表，不依赖 panelData 更新
+      if (keyDetailKeys.has(entry.key)) {
+        remaining.push(entry);
+        continue;
+      }
       const option = buildChartOption(entry.key, panelData);
       if (!option || entry.instance.isDisposed()) {
         entry.instance.dispose();
@@ -5804,6 +5833,15 @@
     const option = buildKeyCostChartOption();
     if (!option || !container) return;
     getEcharts().then((echarts) => {
+      // 容器不可见时跳过初始化，避免 ECharts 在 0×0 容器上渲染异常
+      if (!container.offsetParent) return;
+      // 容器可能因 DOM 重建而 detached，重新查询当前 DOM 中的容器
+      let currentContainer = container;
+      if (!currentContainer.isConnected) {
+        const refreshedFrame = keySection.querySelector(".dsapi-plus-chart-frame");
+        if (refreshedFrame) currentContainer = refreshedFrame.querySelector('[data-dsapi-chart="keyCost"]');
+        if (!currentContainer || !currentContainer.isConnected) return;
+      }
       // 检查是否已有实例
       let instance = null;
       for (const entry of state.charts) {
@@ -5937,7 +5975,9 @@
           tableWrap.style.display = state.keyTableVisible ? "" : "none";
         }
         // 表格显示状态变化后调整图表尺寸
-        for (const { instance } of state.charts) instance?.resize();
+        requestAnimationFrame(() => {
+          for (const { instance } of state.charts) instance?.resize();
+        });
       });
     }
 
@@ -5965,7 +6005,9 @@
           }
           initOrUpdateKeyCostChart(keySection);
         }
-        for (const { instance } of state.charts) instance?.resize();
+        requestAnimationFrame(() => {
+          for (const { instance } of state.charts) instance?.resize();
+        });
       });
     }
 
@@ -6071,7 +6113,9 @@
             }
           }
         }
-        for (const { instance } of state.charts) instance?.resize();
+        requestAnimationFrame(() => {
+          for (const { instance } of state.charts) instance?.resize();
+        });
       });
     }
 
@@ -6086,7 +6130,15 @@
         if (chartWrap) {
           chartWrap.style.display = state.keyDetailChartVisible ? "" : "none";
         }
-        for (const { instance } of state.charts) instance?.resize();
+        // 确保图表实例存在；不存在时主动初始化
+        const hasKeyCost = state.charts.some((e) => e.key === "keyCost");
+        if (state.keyDetailChartVisible && !hasKeyCost) {
+          const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+          if (keySection) initOrUpdateKeyCostChart(keySection);
+        }
+        requestAnimationFrame(() => {
+          for (const { instance } of state.charts) instance?.resize();
+        });
       });
     }
 
@@ -6109,7 +6161,9 @@
         if (block) {
           block.style.display = state.sectionVisible[section] ? "" : "none";
         }
-        for (const { instance } of state.charts) instance?.resize();
+        requestAnimationFrame(() => {
+          for (const { instance } of state.charts) instance?.resize();
+        });
       });
     });
 
@@ -6382,7 +6436,13 @@
       }
     });
 
-    state.observer = new MutationObserver(() => {
+    state.observer = new MutationObserver((mutations) => {
+      // 过滤掉仅 panel 内部或 ECharts tooltip DOM 引起的变化，避免不必要刷新
+      const isPanelOrTooltip = mutations.some((m) => {
+        const node = m.target;
+        return node && (node.closest ? (node.closest('#' + PANEL_ID) != null || node.closest('.dsapi-plus-chart-tooltip,.dsapi-plus-panel') != null) : false);
+      });
+      if (isPanelOrTooltip) return;
       window.clearTimeout(state.mutationTimer);
       state.mutationTimer = window.setTimeout(() => {
         const panel = ensurePanel();
