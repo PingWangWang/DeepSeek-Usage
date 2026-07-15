@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.32.0
+// @version      1.35.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -103,7 +103,7 @@
       const saved = localStorage.getItem("dsapi_plus_section_visible");
       if (saved) return JSON.parse(saved);
     } catch (e) { /* ignore */ }
-    return { requests: false, tokens: false, cacheRate: false, composition: false, models: false };
+    return { requests: false, tokens: false, composition: false, models: false };
   }
 
   function saveSectionVisible() {
@@ -163,7 +163,7 @@
     try {
       return localStorage.getItem("dsapi_plus_key_daily_visible") === "true";
     } catch (e) { /* ignore */ }
-    return false;
+    return true;
   }
 
   function saveKeyDetailDailyVisible() {
@@ -477,21 +477,6 @@
         line-height: 18px;
         white-space: nowrap;
       }
-      .dsapi-plus-refresh {
-        appearance: none;
-        border: 1px solid var(--dsapi-plus-muted);
-        background: transparent;
-        color: var(--dsapi-plus-muted);
-        cursor: pointer;
-        opacity: 0.7;
-        transition: none;
-        white-space: nowrap;
-      }
-      .dsapi-plus-refresh:hover {
-        opacity: 1;
-        background: rgba(2, 14, 54, 0.05);
-        color: var(--dsapi-plus-text);
-      }
       .dsapi-plus-toggle-section-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
@@ -660,12 +645,10 @@
       .dsapi-plus-toggle-native-btn,
       .dsapi-plus-toggle-compact-btn,
       .dsapi-plus-group-model-btn,
-      .dsapi-plus-daily-btn,
       .dsapi-plus-key-filter-btn,
       .dsapi-plus-cost-chart-btn,
       .dsapi-plus-subscribe-btn,
       .dsapi-plus-subscribe-create-btn,
-      .dsapi-plus-refresh,
       .dsapi-plus-clear-cache-btn {
         appearance: none;
         box-sizing: border-box;
@@ -710,27 +693,6 @@
         opacity: 1;
       }
       .dsapi-plus-toggle-key-btn.active {
-        opacity: 1;
-        color: #22c55e;
-        border-color: #22c55e;
-        background: rgba(34, 197, 94, 0.08);
-      }
-      .dsapi-plus-daily-btn {
-        appearance: none;
-        border: 1px solid var(--dsapi-plus-muted);
-        background: transparent;
-        color: var(--dsapi-plus-muted);
-        cursor: pointer;
-        opacity: 0.7;
-        transition: none;
-        white-space: nowrap;
-      }
-      .dsapi-plus-daily-btn:hover {
-        opacity: 1;
-        background: rgba(2, 14, 54, 0.05);
-        color: var(--dsapi-plus-text);
-      }
-      .dsapi-plus-daily-btn.active {
         opacity: 1;
         color: #22c55e;
         border-color: #22c55e;
@@ -1034,15 +996,6 @@
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
       }
-      body.dark .dsapi-plus-daily-btn:hover {
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--dsapi-plus-text);
-      }
-      body.dark .dsapi-plus-daily-btn.active {
-        color: #4ade80;
-        border-color: #4ade80;
-        background: rgba(74, 222, 128, 0.12);
-      }
       body.dark .dsapi-plus-cost-chart-btn:hover {
         background: rgba(255, 255, 255, 0.08);
         color: var(--dsapi-plus-text);
@@ -1169,11 +1122,9 @@
         .dsapi-plus-toggle-section-btn,
         .dsapi-plus-toggle-key-btn,
         .dsapi-plus-group-model-btn,
-        .dsapi-plus-daily-btn,
         .dsapi-plus-key-filter-btn,
         .dsapi-plus-toggle-native-btn,
       .dsapi-plus-toggle-compact-btn,
-        .dsapi-plus-refresh,
         .dsapi-plus-auto-refresh-btn {
           font-size: 10px;
           padding: 3px 4px;
@@ -1213,11 +1164,9 @@
         .dsapi-plus-toggle-section-btn,
         .dsapi-plus-toggle-key-btn,
         .dsapi-plus-group-model-btn,
-        .dsapi-plus-daily-btn,
         .dsapi-plus-key-filter-btn,
         .dsapi-plus-toggle-native-btn,
       .dsapi-plus-toggle-compact-btn,
-        .dsapi-plus-refresh,
         .dsapi-plus-auto-refresh-btn {
           font-size: 9px;
           padding: 2px 3px;
@@ -2252,7 +2201,6 @@
         </div>
         <div class="dsapi-plus-actions">
           <span class="dsapi-plus-status">加载中...</span>
-          <button type="button" class="dsapi-plus-refresh">刷新数据</button>
         </div>
       </div>
       <div class="dsapi-plus-message">正在读取 DeepSeek 用量接口。</div>
@@ -2307,7 +2255,6 @@
         </div>
         <div class="dsapi-plus-actions">
           <span class="dsapi-plus-status">加载失败</span>
-          <button type="button" class="dsapi-plus-refresh">重试</button>
         </div>
       </div>
       ${errorBannerHTML(message, isAuth)}
@@ -4158,7 +4105,6 @@
           <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原始视图</button>
           <button type="button" class="dsapi-plus-toggle-compact-btn${state.compactViewVisible ? ' active' : ''}" style="margin-left:4px;">精简视图</button>
           <button type="button" class="dsapi-plus-clear-cache-btn" style="margin-left:4px;">清除缓存</button>
-          <button type="button" class="dsapi-plus-refresh">刷新数据</button>
         </div>
       </div>
 
@@ -4181,7 +4127,6 @@
             <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
               <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.requests ? ' active' : ''}" data-section="requests">请求统计</button>
               <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.tokens ? ' active' : ''}" data-section="tokens">Token统计</button>
-              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存命中</button>
               <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.composition ? ' active' : ''}" data-section="composition">Token构成</button>
               <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型用量</button>
             </div>
@@ -4208,12 +4153,6 @@
             </div>
           </div>
 
-          <div class="dsapi-plus-chart-block" style="display:${state.sectionVisible.cacheRate ? '' : 'none'};">
-            ${chartHeading("缓存命中率", formatPercent(cacheHitRate(amount.aggregate)))}
-            <div class="dsapi-plus-chart-frame">
-              <div class="dsapi-plus-chart" data-dsapi-chart="cacheRate"></div>
-            </div>
-          </div>
 
           <div class="dsapi-plus-chart-block" style="display:${state.sectionVisible.composition ? '' : 'none'};">
             ${chartHeading("Token 构成", `缓存命中 ${formatPercent(cacheHitRate(amount.aggregate))}`)}
@@ -4250,7 +4189,6 @@
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
-              <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}">${state.groupByModel ? 'Key分组' : '模型分组'}</button>
               <div class="dsapi-plus-key-filter-wrap" style="position:relative;">
                 <button type="button" class="dsapi-plus-key-filter-btn">筛选密钥${state.keyFilter && state.keyFilter.mode === 'selected' && state.keyFilter.keys?.length ? ` (${state.keyFilter.keys.length})` : ''}</button>
                 <div class="dsapi-plus-key-filter-dropdown" style="display:none;position:absolute;top:100%;right:0;z-index:1000;background:var(--dsapi-plus-bg,#fff);border:1px solid var(--dsapi-plus-muted);border-radius:6px;padding:6px;min-width:160px;max-height:260px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
@@ -4261,9 +4199,9 @@
                   <div class="dsapi-plus-filter-list"></div>
                 </div>
               </div>
+              <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}">${state.groupByModel ? 'Key分组' : '模型分组'}</button>
               <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">明细表格</button>
               <button type="button" class="dsapi-plus-cost-chart-btn${state.keyDetailChartVisible ? ' active' : ''}">费用分布</button>
-              <button type="button" class="dsapi-plus-daily-btn${state.keyDetailDailyVisible ? ' active' : ''}">每日详情</button>
             </div>
           </div>
           ${sortedKeys.length ? renderKeyTable(sortedKeys, cost, state.keyTableVisible) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
@@ -4273,7 +4211,7 @@
               ${sortedKeys.length ? `<div class="dsapi-plus-chart" style="height:${keyChartHeight}px;" data-dsapi-chart="keyCost"></div>` : '<div class="dsapi-plus-message">暂无 Key 费用数据。</div>'}
             </div>
           </div>
-          <div class="dsapi-plus-daily-chart" style="display:${state.keyDetailDailyVisible ? '' : 'none'};margin-top:8px;width:100%;">
+          <div class="dsapi-plus-daily-chart" style="margin-top:8px;width:100%;">
             ${chartHeading("每日费用明细", "")}
             <div class="dsapi-plus-chart-frame" style="height:200px;">
               <div class="dsapi-plus-chart" style="width:100%;height:200px;" data-dsapi-chart="keyDaily"></div>
@@ -4645,7 +4583,6 @@
     switch (key) {
       case "requests": return buildRequestChartOption(amount.days);
       case "tokens": return buildTokensChartOption(amount.days);
-      case "cacheRate": return buildCacheRateChartOption(amount.days);
       case "composition": return buildCompositionChartOption(amount.aggregate);
       case "models": return buildModelsChartOption(sortedModels.slice(0, 8));
       case "keyCost": return buildKeyCostChartOption();
@@ -4722,7 +4659,6 @@
     const headingTexts = [
       formatInteger(amount.aggregate.request),
       formatInteger(tokenTotal),
-      formatPercent(cacheHitRate(amount.aggregate)),
       `缓存命中 ${formatPercent(cacheHitRate(amount.aggregate))}`,
       sortedModels.length ? `${sortedModels.length} 个活跃模型` : "暂无模型用量",
       state.keyDetailData?.length ? `${state.keyDetailData.length} 个活跃 Key` : (sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"),
@@ -4824,7 +4760,7 @@
       .then((echarts) => {
         if (!panel.isConnected) return;
 
-        const keys = ["requests", "tokens", "cacheRate", "composition", "models", "keyCost", "keyDaily"];
+        const keys = ["requests", "tokens", "composition", "models", "keyCost", "keyDaily"];
         for (const key of keys) {
           const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
           const option = buildChartOption(key, panelData);
@@ -4887,37 +4823,6 @@
     return option;
   }
 
-  function buildCacheRateChartOption(days) {
-    const option = chartBaseOption();
-    option.xAxis.data = days.map((day) => day.date);
-    option.yAxis.axisLabel.formatter = (value) => `${formatDecimal(value * 100, 0)}%`;
-    option.yAxis.max = 1;
-    option.tooltip.formatter = (params) => {
-      const item = params[0];
-      const day = days[item.dataIndex] || {};
-      return tooltipHtml(item.axisValue, [
-        { color: "#0C70F3", label: "缓存命中率", value: formatPercent(item.value) },
-        { color: "#60B3FE", label: "缓存命中 Tokens", value: formatInteger(day.promptHit || 0) },
-        { color: "#A0DCFD", label: "输入 Tokens", value: formatInteger((day.promptHit || 0) + (day.promptMiss || 0)) },
-      ]);
-    };
-    option.series = [
-      {
-        data: days.map((day) => {
-          const total = day.promptHit + day.promptMiss;
-          return total > 0 ? day.promptHit / total : 0;
-        }),
-        type: "line",
-        smooth: true,
-        showSymbol: false,
-        itemStyle: { color: "#0C70F3" },
-        lineStyle: { color: "#0C70F3", width: 1.5 },
-        areaStyle: { color: "rgba(112, 178, 254, 0.7)" },
-        emphasis: { disabled: true },
-      },
-    ];
-    return option;
-  }
 
   function buildTokensChartOption(days) {
     const option = chartBaseOption();
@@ -6002,16 +5907,6 @@
   }
 
   function bindRefresh(panel) {
-    const button = panel.querySelector(".dsapi-plus-refresh");
-    if (button) {
-      button.addEventListener("click", () => {
-        refresh(true);
-        // 同时刷新数据 Key 明细
-        const period = getSelectedPeriod();
-        const controller = new AbortController();
-        fetchKeyDetailFromExport(period, controller.signal);
-      });
-    }
 
     // 切换 Key 明细表格显示
     const toggleBtn = panel.querySelector(".dsapi-plus-toggle-key-btn");
@@ -6130,44 +6025,6 @@
       // 点击外部关闭
       document.addEventListener("click", (e) => {
         if (!filterWrap.contains(e.target)) filterDropdown.style.display = "none";
-      });
-    }
-
-    // 每日详情切换
-    const dailyBtn = panel.querySelector(".dsapi-plus-daily-btn");
-    if (dailyBtn) {
-      dailyBtn.addEventListener("click", () => {
-        state.keyDetailDailyVisible = !state.keyDetailDailyVisible;
-        dailyBtn.classList.toggle("active", state.keyDetailDailyVisible);
-        saveKeyDetailDailyVisible();
-        const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
-        if (dailyChart) {
-          dailyChart.style.display = state.keyDetailDailyVisible ? "" : "none";
-        }
-        if (state.keyDetailDailyVisible) {
-          // 初始化或更新每日图表
-          const container = dailyChart?.querySelector('[data-dsapi-chart="keyDaily"]');
-          if (container) {
-            const option = buildKeyDailyChartOption();
-            if (option) {
-              getEcharts().then((echarts) => {
-                let instance = echarts.getInstanceByDom(container);
-                if (!instance) {
-                  instance = echarts.init(container, null, { renderer: "svg" });
-                  const zr = instance.getZr();
-                  zr.on("mousemove", (event) => startTooltipKeeper(instance, event));
-                  zr.on("globalout", () => { if (stopTooltipKeeper(instance)) flushPendingChartUpdates(); });
-                  state.charts.push({ key: "keyDaily", instance });
-                }
-                instance.setOption(option, { notMerge: true });
-                instance.resize();
-              });
-            }
-          }
-        }
-        requestAnimationFrame(() => {
-          for (const { instance } of state.charts) instance?.resize();
-        });
       });
     }
 
