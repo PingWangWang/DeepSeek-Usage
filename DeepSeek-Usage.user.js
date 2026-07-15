@@ -2,8 +2,8 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.26.0
-// @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选/每日费用曲线/多选删除）、月份切换、自动刷新、手机适配。
+// @version      1.29.0
+// @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
 // @match        https://platform.deepseek.com/*
@@ -73,11 +73,11 @@
     // 按模型分组开关
     groupByModel: loadGroupByModel(),
 
-    // 自动刷新
+    // 自动刷新数据
     autoRefreshInterval: loadAutoRefreshInterval(),
     autoRefreshTimer: 0,       // setInterval 句柄
 
-    // Key 筛选
+    // Key 筛选密钥
     keyFilter: loadKeyFilter(),  // { mode: "all", keys: [...] } 或 null
 
     // 每日详情
@@ -90,7 +90,7 @@
     // 订阅功能
     subscriptions: loadSubscriptions(),           // 订阅配置数组
     subscriptionVisible: loadSubscriptionVisible(), // 订阅内嵌面板可见性
-    subscriptionEditVisible: loadSubscriptionEditVisible(), // 编辑面板可见性
+    subscriptionEditVisible: loadSubscriptionEditVisible(), // 编辑配置面板可见性
     subscriptionLastSent: loadSubscriptionLastSent(), // { subId: ISO时间戳 }
     subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
   };
@@ -297,7 +297,7 @@
     if (state.autoRefreshInterval > 0) {
       state.autoRefreshTimer = setInterval(() => {
         refresh(true);
-        // 同时刷新 Key 明细数据（如果已导入过）
+        // 同时刷新数据 Key 明细数据（如果已导入过）
         if (state.keyDetailData && state.keyDetailData.length) {
           const period = getSelectedPeriod();
           const controller = new AbortController();
@@ -345,7 +345,7 @@
         delete opts.keyDetail;
         changed = true;
       }
-      // 删除废弃字段
+      // 删除配置废弃字段
       if (opts.cacheHitRate !== undefined) {
         delete opts.cacheHitRate;
         changed = true;
@@ -437,7 +437,6 @@
         border: 1px solid var(--dsapi-plus-muted);
         border-radius: 6px;
         color: var(--dsapi-plus-muted);
-        font: inherit;
         font-size: 12px;
         height: 28px;
         padding: 0 8px;
@@ -472,7 +471,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -488,7 +486,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         font-size: 12px;
         line-height: 18px;
         padding: 4px 2px;
@@ -514,7 +511,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -540,7 +536,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -562,7 +557,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -607,7 +601,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.6;
         transition: none;
         white-space: nowrap;
@@ -625,7 +618,6 @@
         padding: 4px 8px;
         border-radius: 4px;
         cursor: pointer;
-        font: inherit;
         font-size: 12px;
         line-height: 18px;
         white-space: nowrap;
@@ -647,7 +639,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -669,7 +660,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -691,7 +681,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -746,7 +735,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         font-size: 12px;
         line-height: 18px;
         padding: 5px 0;
@@ -1189,7 +1177,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -1260,7 +1247,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         opacity: 0.7;
         transition: none;
         white-space: nowrap;
@@ -1360,13 +1346,18 @@
       }
       .dsapi-plus-subscribe-item-actions button {
         appearance: none;
+        box-sizing: border-box;
+        height: 28px;
+        min-width: 56px;
+        padding: 0 14px;
         border: 1px solid var(--dsapi-plus-muted);
+        border-radius: 6px;
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         font-size: 12px;
-        padding: 3px 8px;
+        line-height: 1;
+        text-align: center;
         opacity: 0.7;
         transition: opacity 0.15s;
       }
@@ -1381,15 +1372,18 @@
       }
       .dsapi-plus-subscribe-batch-del-btn {
         margin-left:auto;
+        box-sizing:border-box;
+        height:28px;
+        min-width:56px;
         border:1px solid var(--dsapi-plus-muted);
-        border-radius:4px;
+        border-radius:6px;
         background:transparent;
         color:var(--dsapi-plus-muted);
         cursor:pointer;
-        font:inherit;
         font-size:12px;
-        line-height:18px;
-        padding:4px 6px;
+        line-height:1;
+        text-align:center;
+        padding:0 14px;
         opacity:0.7;
         transition:opacity 0.15s;
         white-space:nowrap;
@@ -1466,7 +1460,6 @@
         border: 1px solid rgba(2, 14, 54, 0.15);
         border-radius: 4px;
         padding: 6px 8px;
-        font: inherit;
         font-size: 12px;
         color: var(--dsapi-plus-text);
         background: transparent;
@@ -1509,7 +1502,6 @@
         background: transparent;
         color: var(--dsapi-plus-muted);
         cursor: pointer;
-        font: inherit;
         font-size: 12px;
         padding: 0 14px;
         transition: none;
@@ -1543,7 +1535,6 @@
         border: 1px solid rgba(2, 14, 54, 0.15);
         border-radius: 4px;
         padding: 4px 6px;
-        font: inherit;
         font-size: 12px;
         color: var(--dsapi-plus-text);
         background: transparent;
@@ -2167,7 +2158,7 @@
         </div>
         <div class="dsapi-plus-actions">
           <span class="dsapi-plus-status">加载中...</span>
-          <button type="button" class="dsapi-plus-refresh">刷新</button>
+          <button type="button" class="dsapi-plus-refresh">刷新数据</button>
         </div>
       </div>
       <div class="dsapi-plus-message">正在读取 DeepSeek 用量接口。</div>
@@ -2361,7 +2352,7 @@
     var topCount = sub.contentOptions.topKeys || 10;
     // 确保 topCount 为正整数
     if (typeof topCount !== "number" || topCount < 1) topCount = 10;
-    // 从 keyDetailData 中筛选出已选中的 key（有数据的）
+    // 从 keyDetailData 中筛选密钥出已选中的 key（有数据的）
     var filteredKeyData = [];
     if (sub.keyFilterMode === "selected" && sub.selectedKeys.length) {
       filteredKeyData = keyDetailData.filter(function(item) { return sub.selectedKeys.includes(item.key); });
@@ -2571,7 +2562,7 @@
 
   async function sendSubscriptionReport(sub, showPreview) {
     const reportData = buildSubscriptionReportData(sub);
-    if (!reportData) return { success: false, error: "暂无数据，请先刷新" };
+    if (!reportData) return { success: false, error: "暂无数据，请先刷新数据" };
 
     let markdown;
     if (sub.contentFormat === "screenshot") {
@@ -2785,7 +2776,7 @@
     }
     var closeBtn = document.createElement("button");
     closeBtn.className = "dsapi-plus-subscribe-panel-close";
-    closeBtn.textContent = "✕";
+    closeBtn.textContent = "关闭面板";
     closeBtn.onclick = function () { overlay.remove(); };
     headerRight.appendChild(closeBtn);
     header.appendChild(headerRight);
@@ -3040,10 +3031,10 @@
     } else {
       html += `<div class="dsapi-plus-subscribe-list-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 0;">
         <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;">
-          <input type="checkbox" id="sub-select-all" onclick="var p=document.getElementById('${PANEL_ID}');if(p&&p._subSelectAll)p._subSelectAll();"> 全选
+          <input type="checkbox" id="sub-select-all" onclick="var p=document.getElementById('${PANEL_ID}');if(p&&p._subSelectAll)p._subSelectAll();"> 全部选择
         </label>
         <span id="sub-select-count" style="font-size:11px;color:var(--dsapi-plus-muted);">已选 0</span>
-        <button type="button" class="dsapi-plus-subscribe-batch-del-btn" onclick="var p=document.getElementById('${PANEL_ID}');if(p&&p._subBatchDelete)p._subBatchDelete();">删除选中</button>
+        <button type="button" class="dsapi-plus-subscribe-batch-del-btn" onclick="var p=document.getElementById('${PANEL_ID}');if(p&&p._subBatchDelete)p._subBatchDelete();">删除已选</button>
       </div>`;
       html += `<div class="dsapi-plus-subscribe-list">`;
       for (let i = 0; i < subs.length; i++) {
@@ -3070,10 +3061,10 @@
               <span class="${statusClass}" style="font-size:11px;">${statusText}</span>
             </div>
             <div class="dsapi-plus-subscribe-item-actions">
-              <button data-action="edit" data-index="${i}">编辑</button>
-              <button data-action="preview" data-index="${i}" class="dsapi-plus-subscribe-preview-btn">预览</button>
+              <button data-action="edit" data-index="${i}">编辑配置</button>
+              <button data-action="preview" data-index="${i}" class="dsapi-plus-subscribe-preview-btn">预览报告</button>
               <button data-action="send" data-index="${i}" class="dsapi-plus-subscribe-send-btn">立即发送</button>
-              <button data-action="delete" data-index="${i}" class="dsapi-plus-subscribe-del-btn">删除</button>
+              <button data-action="delete" data-index="${i}" class="dsapi-plus-subscribe-del-btn">删除配置</button>
             </div>
           </div>
           <div class="dsapi-plus-subscribe-item-meta">
@@ -3184,7 +3175,7 @@
     return type ? `${method} (${type})` : method;
   }
 
-  // ========== 订阅功能：编辑表单 ==========
+  // ========== 订阅功能：编辑配置表单 ==========
 
   function renderSubscriptionForm(sub, index) {
     const isNew = index === undefined || index === null;
@@ -3274,10 +3265,10 @@
       </div>
     </div>`;
 
-    // Key 筛选
+    // Key 筛选密钥
     const keyNames = getAvailableKeyNames();
     html += `<div class="dsapi-plus-subscribe-form-row">
-      <div class="dsapi-plus-subscribe-form-label">Key 筛选</div>
+      <div class="dsapi-plus-subscribe-form-label">Key 筛选密钥</div>
       <div class="dsapi-plus-subscribe-form-control">
         <select id="sub-form-key-mode">
           <option value="all" ${s.keyFilterMode === "all" ? "selected" : ""}>全部 Key</option>
@@ -3298,7 +3289,7 @@
         html += `<label><input type="checkbox" value="${escapeHtml(kn)}" ${checked}> ${escapeHtml(kn)}</label>`;
       }
     } else {
-      html += `<span style="color: var(--dsapi-plus-muted);">暂无 Key 数据，请先刷新导入 Key 明细</span>`;
+      html += `<span style="color: var(--dsapi-plus-muted);">暂无 Key 数据，请先刷新数据导入 Key 明细</span>`;
     }
     html += `</div></div></div></div>`;
 
@@ -3361,8 +3352,8 @@
 
     // 按钮区
     html += `<div class="dsapi-plus-subscribe-form-actions">
-      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save">💾 保存</button>
-      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel">取消</button>
+      <button type="button" class="dsapi-plus-subscribe-save-btn" data-action="save">保存配置</button>
+      <button type="button" class="dsapi-plus-subscribe-cancel-btn" data-action="cancel">取消编辑</button>
     </div>`;
 
     html += `</div>`;
@@ -3378,7 +3369,7 @@
   // ========== 订阅功能：面板事件绑定 ==========
 
   function bindSubscriptionPanelEvents(panel) {
-    // 多选删除功能
+    // 多选删除配置功能
     var mainP = document.getElementById(PANEL_ID);
     if (mainP) {
       mainP._subSelectAll = function() {
@@ -3434,7 +3425,7 @@
       showStaticForm(null);
     });
 
-    // 编辑
+    // 编辑配置
     panel.querySelectorAll("[data-action='edit']").forEach(btn => {
       btn.addEventListener("click", () => {
         const idx = parseInt(btn.dataset.index, 10);
@@ -3444,7 +3435,7 @@
       });
     });
 
-    // 删除
+    // 删除配置
     panel.querySelectorAll("[data-action='delete']").forEach(btn => {
       btn.addEventListener("click", () => {
         const idx = parseInt(btn.dataset.index, 10);
@@ -3466,7 +3457,7 @@
         var sub = state.subscriptions[idx];
         if (!sub) return;
         var reportData = buildSubscriptionReportData(sub);
-        if (!reportData) { alert("暂无数据，请先刷新"); return; }
+        if (!reportData) { alert("暂无数据，请先刷新数据"); return; }
         previewBtn.disabled = true;
         previewBtn.textContent = "生成中…";
         // 预览总是用截图展示
@@ -3512,7 +3503,7 @@
           const errPanel = document.createElement("div");
           errPanel.className = "dsapi-plus-subscribe-panel";
           errPanel.style.cssText = "width: 520px; max-height: 85vh; overflow-y: auto;";
-          let diagHtml = '<div class="dsapi-plus-subscribe-panel-header"><h2>🔴 发送失败 — 诊断信息</h2><button class="dsapi-plus-subscribe-panel-close" onclick="this.closest(\'.dsapi-plus-subscribe-overlay\').remove()">✕</button></div>';
+          let diagHtml = '<div class="dsapi-plus-subscribe-panel-header"><h2>🔴 发送失败 — 诊断信息</h2><button class="dsapi-plus-subscribe-panel-close" onclick="this.closest(\'.dsapi-plus-subscribe-overlay\').remove()">关闭面板</button></div>';
           diagHtml += '<div style="margin-bottom:16px; padding:12px; background:rgba(231,76,60,0.06); border-radius:8px; border-left:3px solid #e74c3c;">';
           diagHtml += '<div style="font-size:13px; line-height:1.7; word-break:break-all;">';
           diagHtml += '<p style="margin:0 0 6px;"><strong>错误信息：</strong>' + escapeHtml(result.error || "未知错误") + '</p>';
@@ -3572,7 +3563,7 @@
       if (eidx !== null && eidx !== undefined && state.subscriptions[eidx]) {
         Object.assign(state.subscriptions[eidx], formData);
         state.subscriptions[eidx].lastSentStatus = null;
-        // [修改] 编辑保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
+        // [修改] 编辑配置保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
         var _now = new Date();
         var _subMin = formData.scheduleHour * 60 + formData.scheduleMinute;
         var _nowMin = _now.getHours() * 60 + _now.getMinutes();
@@ -3592,7 +3583,7 @@
       saveSubscriptionLastSent();
       saveSubscriptions();
       updateSubscribeBtnState();
-      // [修改] 编辑结束立即更新倒计时显示，让用户看到新的计划时间
+      // [修改] 编辑配置结束立即更新倒计时显示，让用户看到新的计划时间
       updateSubscriptionCountdowns();
       refreshSubscribeInlineContent();
     };
@@ -3692,7 +3683,7 @@
     if (panel) {
       panel._currentFormIndex = editIndex !== undefined ? editIndex : null;
     }
-    // 记录编辑面板状态为展开
+    // 记录编辑配置面板状态为展开
     state.subscriptionEditVisible = true;
     saveSubscriptionEditVisible();
     // 绑定表单内交互事件（保存/取消/下拉切换等）
@@ -3712,7 +3703,7 @@
         if (eidx !== null && eidx !== undefined && state.subscriptions[eidx]) {
           Object.assign(state.subscriptions[eidx], formData);
           state.subscriptions[eidx].lastSentStatus = null;
-          // [修改] 编辑保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
+          // [修改] 编辑配置保存时：若当天计划时间已过，标记为已检查，避免 catch-up 补发
           var _now = new Date();
           var _subMin = formData.scheduleHour * 60 + formData.scheduleMinute;
           var _nowMin = _now.getHours() * 60 + _now.getMinutes();
@@ -3732,7 +3723,7 @@
         saveSubscriptionLastSent();
         saveSubscriptions();
         updateSubscribeBtnState();
-        // [修改] 编辑结束立即更新倒计时显示，让用户看到新的计划时间
+        // [修改] 编辑配置结束立即更新倒计时显示，让用户看到新的计划时间
         updateSubscriptionCountdowns();
         hideStaticForm();
       });
@@ -3769,7 +3760,7 @@
         }
       });
     }
-    // Key 筛选模式切换
+    // Key 筛选密钥模式切换
     var keyModeSelect = formEl.querySelector("#sub-form-key-mode");
     if (keyModeSelect) {
       keyModeSelect.addEventListener("change", function() {
@@ -3824,10 +3815,10 @@
   function hideStaticForm() {
     var formContainer = document.getElementById("dsapi-plus-subscribe-form-static");
     if (formContainer) formContainer.style.display = "none";
-    // 记录编辑面板状态为折叠
+    // 记录编辑配置面板状态为折叠
     state.subscriptionEditVisible = false;
     saveSubscriptionEditVisible();
-    // 恢复列表显示：刷新内联内容
+    // 恢复列表显示：刷新数据内联内容
     refreshSubscribeInlineContent();
   }
 
@@ -3848,7 +3839,7 @@
       content.appendChild(newPanel);
       bindSubscriptionPanelEvents(newPanel);
     } catch (e) {
-      console.error("[DeepSeek Usage Panel Plus] 刷新订阅面板错误:", e);
+      console.error("[DeepSeek Usage Panel Plus] 刷新数据订阅面板错误:", e);
     }
   }
 
@@ -3888,10 +3879,10 @@
       const lastSent = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
       if (shouldSendNow(sub, now, lastSent)) {
         console.log("[DeepSeek Usage Panel Plus] 订阅检查触发:", sub.name, "时间:", now.toLocaleTimeString());
-        // 发送前先刷新 Key 明细数据
+        // 发送前先刷新数据 Key 明细数据
         try {
           await fetchKeyDetailFromExport(getSelectedPeriod(), new AbortController().signal);
-        } catch (e) { /* 刷新失败不影响发送，使用已有数据 */ }
+        } catch (e) { /* 刷新数据失败不影响发送，使用已有数据 */ }
         sendSubscriptionReport(sub).then(result => {
           if (result.success) {
             sub.lastSentAt = new Date().toISOString();
@@ -3902,7 +3893,7 @@
           }
           saveSubscriptions();
           saveSubscriptionLastSent();
-          // [修改] 发送完成后刷新 UI，确保倒计时和状态显示同步更新
+          // [修改] 发送完成后刷新数据 UI，确保倒计时和状态显示同步更新
           updateSubscriptionCountdowns();
           refreshSubscribeInlineContent();
         }).catch(function (err) {
@@ -4064,10 +4055,10 @@
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
-          <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;">自动刷新 ${getAutoRefreshLabel(state.autoRefreshInterval)}</button>
-          <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原生内容</button>
+          <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;" title="当前间隔：${getAutoRefreshLabel(state.autoRefreshInterval)}">自动刷新数据</button>
+          <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原始视图</button>
           <button type="button" class="dsapi-plus-clear-cache-btn" style="margin-left:4px;">清除缓存</button>
-          <button type="button" class="dsapi-plus-refresh">刷新</button>
+          <button type="button" class="dsapi-plus-refresh">刷新数据</button>
         </div>
       </div>
 
@@ -4076,7 +4067,7 @@
           <div style="font-size:14px;font-weight:600;flex-shrink:0;">📬 订阅管理</div>
           <span style="font-size:11px;color:var(--dsapi-plus-muted);flex-shrink:0;">${getActiveSubscriptionCount()} 个活跃订阅</span>
           <div style="flex:1;"></div>
-          <button type="button" class="dsapi-plus-subscribe-btn${state.subscriptionVisible ? ' active' : ''}">订阅</button>
+          <button type="button" class="dsapi-plus-subscribe-btn${state.subscriptionVisible ? ' active' : ''}">订阅面板</button>
           <button type="button" class="dsapi-plus-subscribe-create-btn" data-action="create">新建订阅</button>
         </div>
         <div class="dsapi-plus-subscribe-inline-content"></div>
@@ -4088,11 +4079,11 @@
           <div class="dsapi-plus-section-head" style="margin-bottom:12px;width:100%;">
             <div class="dsapi-plus-section-title">💰 费用摘要</div>
             <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
-              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.requests ? ' active' : ''}" data-section="requests">请求</button>
-              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.tokens ? ' active' : ''}" data-section="tokens">Tokens</button>
-              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.requests ? ' active' : ''}" data-section="requests">请求统计</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.tokens ? ' active' : ''}" data-section="tokens">Token统计</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.cacheRate ? ' active' : ''}" data-section="cacheRate">缓存命中</button>
               <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.composition ? ' active' : ''}" data-section="composition">Token构成</button>
-              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型用量</button>
             </div>
           </div>
           ${summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "")}
@@ -4159,18 +4150,18 @@
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
             <span class="dsapi-plus-status" style="font-size:11px;">已更新 ${state.keyDetailUpdateTime || "--"}</span>
             <div style="display:flex;gap:8px;margin-left:auto;">
-              <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}">${state.groupByModel ? '按Key统计' : '按模型统计'}</button>
+              <button type="button" class="dsapi-plus-group-model-btn${state.groupByModel ? ' active' : ''}">${state.groupByModel ? 'Key分组' : '模型分组'}</button>
               <div class="dsapi-plus-key-filter-wrap" style="position:relative;">
-                <button type="button" class="dsapi-plus-key-filter-btn">筛选${state.keyFilter && state.keyFilter.mode === 'selected' && state.keyFilter.keys?.length ? ` (${state.keyFilter.keys.length})` : ''}</button>
+                <button type="button" class="dsapi-plus-key-filter-btn">筛选密钥${state.keyFilter && state.keyFilter.mode === 'selected' && state.keyFilter.keys?.length ? ` (${state.keyFilter.keys.length})` : ''}</button>
                 <div class="dsapi-plus-key-filter-dropdown" style="display:none;position:absolute;top:100%;right:0;z-index:1000;background:var(--dsapi-plus-bg,#fff);border:1px solid var(--dsapi-plus-muted);border-radius:6px;padding:6px;min-width:160px;max-height:260px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
                   <div style="display:flex;gap:4px;margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid var(--dsapi-plus-muted);">
-                    <button type="button" class="dsapi-plus-filter-all-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:12px;padding:3px 6px;">全选</button>
-                    <button type="button" class="dsapi-plus-filter-none-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font:inherit;font-size:12px;padding:3px 6px;">全取消</button>
+                    <button type="button" class="dsapi-plus-filter-all-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font-size:12px;padding:3px 6px;">全部选择</button>
+                    <button type="button" class="dsapi-plus-filter-none-btn" style="flex:1;border:0;border-radius:4px;background:rgba(2,14,54,0.05);cursor:pointer;font-size:12px;padding:3px 6px;">取消全部</button>
                   </div>
                   <div class="dsapi-plus-filter-list"></div>
                 </div>
               </div>
-              <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">表格详情</button>
+              <button type="button" class="dsapi-plus-toggle-key-btn${state.keyTableVisible ? ' active' : ''}">明细表格</button>
               <button type="button" class="dsapi-plus-cost-chart-btn${state.keyDetailChartVisible ? ' active' : ''}">费用分布</button>
               <button type="button" class="dsapi-plus-daily-btn${state.keyDetailDailyVisible ? ' active' : ''}">每日详情</button>
             </div>
@@ -4254,7 +4245,7 @@
     }
     // 全量重渲染后恢复原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
-    // 异步刷新 Key 明细（使用当前选中月份）
+    // 异步刷新数据 Key 明细（使用当前选中月份）
     var period = getSelectedPeriod();
     var controller = new AbortController();
     fetchKeyDetailFromExport(period, controller.signal).catch(function () {});
@@ -4698,7 +4689,7 @@
   function updateChartsData(panelData) {
     if (state.tooltipActive) {
       state.pendingPanelData = panelData;
-      // 5 秒后强制刷新，避免 tooltip 长时间阻塞数据更新
+      // 5 秒后强制刷新数据，避免 tooltip 长时间阻塞数据更新
       if (!state.pendingPanelDataTimer) {
         state.pendingPanelDataTimer = setTimeout(() => {
           state.pendingPanelDataTimer = 0;
@@ -5666,7 +5657,7 @@
       state.keyUnitPrices = {};
       state.keyDetailLoading = false;
       saveKeyDetailData();
-      // 延迟刷新 UI，避免和 renderPanel 的 DOM 重建竞态
+      // 延迟刷新数据 UI，避免和 renderPanel 的 DOM 重建竞态
       scheduleKeyDetailUIUpdate();
       return sorted;
     } catch (error) {
@@ -5678,7 +5669,7 @@
     }
   }
 
-  // 延迟刷新 Key 明细 UI（避免与 renderPanel DOM 重建竞态）
+  // 延迟刷新数据 Key 明细 UI（避免与 renderPanel DOM 重建竞态）
   var _keyDetailUIRetryTimer = 0;
   function scheduleKeyDetailUIUpdate() {
     if (_keyDetailUIRetryTimer) clearTimeout(_keyDetailUIRetryTimer);
@@ -5915,7 +5906,7 @@
     if (button) {
       button.addEventListener("click", () => {
         refresh(true);
-        // 同时刷新 Key 明细
+        // 同时刷新数据 Key 明细
         const period = getSelectedPeriod();
         const controller = new AbortController();
         fetchKeyDetailFromExport(period, controller.signal);
@@ -5972,7 +5963,7 @@
       });
     }
 
-    // Key 筛选
+    // Key 筛选密钥
     const filterWrap = panel.querySelector(".dsapi-plus-key-filter-wrap");
     const filterBtn = panel.querySelector(".dsapi-plus-key-filter-btn");
     const filterDropdown = panel.querySelector(".dsapi-plus-key-filter-dropdown");
@@ -5992,7 +5983,7 @@
           .join("");
         // 更新按钮文字
         const selectedCount = filter.mode === "all" ? allKeys.length : filter.keys.length;
-        filterBtn.textContent = selectedCount < allKeys.length ? `筛选 (${selectedCount})` : "筛选";
+        filterBtn.textContent = selectedCount < allKeys.length ? `筛选密钥 (${selectedCount})` : "筛选密钥";
       }
       populateFilterList();
 
@@ -6003,11 +5994,11 @@
         filterDropdown.style.display = filterDropdown.style.display === "none" ? "" : "none";
       });
 
-      // 全选 / 全取消
+      // 全部选择 / 取消全部
       filterWrap.querySelector(".dsapi-plus-filter-all-btn")?.addEventListener("click", () => {
         state.keyFilter = { mode: "all", keys: [] };
         saveKeyFilter();
-        filterBtn.textContent = "筛选";
+        filterBtn.textContent = "筛选密钥";
         filterList.querySelectorAll("input").forEach((cb) => { cb.checked = true; });
         applyKeyFilter(panel);
         filterDropdown.style.display = "none";
@@ -6016,7 +6007,7 @@
         const data = state.keyDetailData;
         state.keyFilter = { mode: "selected", keys: data ? [] : [] };
         saveKeyFilter();
-        filterBtn.textContent = "筛选 (0)";
+        filterBtn.textContent = "筛选密钥 (0)";
         filterList.querySelectorAll("input").forEach((cb) => { cb.checked = false; });
         applyKeyFilter(panel);
         filterDropdown.style.display = "none";
@@ -6032,7 +6023,7 @@
           state.keyFilter = { mode: "selected", keys: Array.from(checks).map((cb) => cb.value) };
         }
         saveKeyFilter();
-        filterBtn.textContent = checks.length < allKeys.length ? `筛选 (${checks.length})` : "筛选";
+        filterBtn.textContent = checks.length < allKeys.length ? `筛选密钥 (${checks.length})` : "筛选密钥";
         applyKeyFilter(panel);
       });
 
@@ -6163,17 +6154,17 @@
       });
     }
 
-    // 自动刷新切换
+    // 自动刷新数据切换
     const autoRefreshBtn = panel.querySelector(".dsapi-plus-auto-refresh-btn");
     if (autoRefreshBtn) {
       autoRefreshBtn.addEventListener("click", () => {
         state.autoRefreshInterval = nextAutoRefreshInterval(state.autoRefreshInterval);
         saveAutoRefreshInterval();
         applyAutoRefresh();
-        autoRefreshBtn.textContent = `自动刷新 ${getAutoRefreshLabel(state.autoRefreshInterval)}`;
+        autoRefreshBtn.textContent = `自动刷新数据 ${getAutoRefreshLabel(state.autoRefreshInterval)}`;
         autoRefreshBtn.classList.toggle("active", state.autoRefreshInterval > 0);
       });
-      // 初始化时应用保存的自动刷新状态（直接读取 localStorage 确保一致性）
+      // 初始化时应用保存的自动刷新数据状态（直接读取 localStorage 确保一致性）
       const savedInterval = (() => {
         try {
           return parseInt(localStorage.getItem("dsapi_plus_auto_refresh"), 10) || 0;
@@ -6181,7 +6172,7 @@
       })();
       if (savedInterval > 0 && AUTO_REFRESH_INTERVALS.some((i) => i.value === savedInterval)) {
         state.autoRefreshInterval = savedInterval;
-        autoRefreshBtn.textContent = `自动刷新 ${getAutoRefreshLabel(savedInterval)}`;
+        autoRefreshBtn.textContent = `自动刷新数据 ${getAutoRefreshLabel(savedInterval)}`;
         autoRefreshBtn.classList.add("active");
         applyAutoRefresh();
       }
@@ -6198,7 +6189,7 @@
         state.keyDetailUpdateTime = "";
         localStorage.removeItem("dsapi_plus_key_detail");
         refresh(true);
-        // 自动刷新 Key 明细
+        // 自动刷新数据 Key 明细
         const controller = new AbortController();
         fetchKeyDetailFromExport(periodSelect.value, controller.signal);
       });
@@ -6223,7 +6214,7 @@
               content.appendChild(subPanel);
               bindSubscriptionPanelEvents(subPanel);
             }
-            // 恢复编辑面板状态：上次展开则同步展开，否则确保隐藏
+            // 恢复编辑配置面板状态：上次展开则同步展开，否则确保隐藏
             if (state.subscriptionEditVisible && formStatic) {
               var outerPanel = document.getElementById(PANEL_ID);
               showStaticForm(outerPanel ? outerPanel._currentFormIndex : null);
@@ -6232,7 +6223,7 @@
             }
           } else {
             content.style.display = "none";
-            // 关闭时同步隐藏编辑面板，但保留 subscriptionEditVisible 状态以便恢复
+            // 关闭时同步隐藏编辑配置面板，但保留 subscriptionEditVisible 状态以便恢复
             if (formStatic) formStatic.style.display = "none";
           }
         }
@@ -6398,7 +6389,7 @@
     });
 
     state.observer = new MutationObserver((mutations) => {
-      // 过滤掉仅 panel 内部或 ECharts tooltip DOM 引起的变化，避免不必要刷新
+      // 过滤掉仅 panel 内部或 ECharts tooltip DOM 引起的变化，避免不必要刷新数据
       const isPanelOrTooltip = mutations.some((m) => {
         const node = m.target;
         return node && (node.closest ? (node.closest('#' + PANEL_ID) != null || node.closest('.dsapi-plus-chart-tooltip,.dsapi-plus-panel') != null) : false);
