@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.36.0
+// @version      1.36.2
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -5058,7 +5058,7 @@
       const sorted = params.map((p, i) => ({ p, i })).sort((a, b) => b.p.value - a.p.value);
       const rows = sorted.map(({ p, i }) => {
         // 从同索引的 miss/hit 数组中取当日值计算缓存命中率
-        var missVal = 0, hitVal = 0, cacheRate = null;
+        var missVal = 0, hitVal = 0, cacheRate = 0;
         if (dailyData.miss && dailyData.miss[i] && dailyData.hit && dailyData.hit[i]) {
           missVal = dailyData.miss[i].data[p.dataIndex] || 0;
           hitVal = dailyData.hit[i].data[p.dataIndex] || 0;
@@ -5758,6 +5758,20 @@
       }
       // 初始化或更新 Key 费用图表
       initOrUpdateKeyCostChart(keySection);
+      // 更新每日费用明细曲线图（数据源 state.keyDetailDailyData 在 fetchKeyDetailFromExport 中已更新）
+      const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
+      if (dailyChart && dailyChart.style.display !== "none") {
+        const container = dailyChart.querySelector('[data-dsapi-chart="keyDaily"]');
+        if (container) {
+          const option = buildKeyDailyChartOption();
+          if (option) {
+            getEcharts().then((echarts) => {
+              let instance = echarts.getInstanceByDom(container);
+              if (instance) { instance.setOption(option, { notMerge: true }); instance.resize(); }
+            });
+          }
+        }
+      }
     }
   }
 
