@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.36.3
+// @version      1.36.4
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -3987,6 +3987,9 @@
       ? amount.keys.slice().sort((a, b) => b.tokens - a.tokens || b.request - a.request)
       : [];
     const tokenTotal = amount.aggregate.tokens;
+    // [修改] 原因：get_user_summary 接口已不返回 monthlyUsage 字段，导致当月用量恒为 0；
+    // 当月用量优先使用带月份参数的 amount 接口月度聚合值，summary.monthlyUsage 仅作兜底
+    const monthlyUsageDisplay = tokenTotal || summary.monthlyUsage;
     const monthCnyCost = sumCurrencyAmount(cost, "CNY", "amount");
     const monthlyCnyCost = sumCurrencyAmount(summary.monthlyCosts, "CNY", "amount");
     const cnyCostBreakdown = getCostBreakdown(cost, "CNY");
@@ -4136,7 +4139,7 @@
           ${summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "")}
           ${summaryItem("当月费用", monthCostText, "", costDetail)}
           ${summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
-          ${summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail)}
+          ${summaryItem("当月用量", formatInteger(monthlyUsageDisplay), "Tokens", usageDetail)}
           ${summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "")}
         </div>
 
@@ -4643,6 +4646,8 @@
 
   function updatePanelIncremental(panel, panelData) {
     const { period, amount, summary, cost, monthlyCostText, monthCostText, todayCostText, todayCostDetail, costDetail, usageDetail, sortedModels, sortedKeys, tokenTotal, isCurrentPeriod, averageCostLabel, averageCostPerMillion, averageCostDetail, walletCnyBalance, updateTime } = panelData;
+    // [修改] 原因：与全量渲染保持一致，当月用量优先使用 amount 月度聚合值，避免恒为 0
+    const monthlyUsageDisplay = tokenTotal || summary.monthlyUsage;
 
     const periodSelect = panel.querySelector(".dsapi-plus-period-select");
     const status = panel.querySelector(".dsapi-plus-status");
@@ -4656,7 +4661,7 @@
         summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "") +
         summaryItem("当月费用", monthCostText, "", costDetail) +
         summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
-        summaryItem("当月用量", formatInteger(summary.monthlyUsage), "Tokens", usageDetail) +
+        summaryItem("当月用量", formatInteger(monthlyUsageDisplay), "Tokens", usageDetail) +
         summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "");
     }
 
