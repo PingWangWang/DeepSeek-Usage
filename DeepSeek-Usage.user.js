@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.36.2
+// @version      1.36.3
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2182,7 +2182,8 @@
   }
 
   function renderSkeleton(panel, period) {
-    if (state.charts.length > 0) {
+    // [修改] 原因：面板已渲染过时即使图表暂缺也走轻量更新，避免整面板重建销毁月份下拉
+    if (state.charts.length > 0 || panel.dataset.rendered === "1") {
       const periodSelect = panel.querySelector(".dsapi-plus-period-select");
       const status = panel.querySelector(".dsapi-plus-status");
       if (periodSelect) periodSelect.value = period;
@@ -2232,7 +2233,8 @@
       error: message,
     };
 
-    if (state.charts.length > 0) {
+    // [修改] 原因：面板已渲染过时走增量错误提示，避免整面板重建销毁月份下拉
+    if (state.charts.length > 0 || panel.dataset.rendered === "1") {
       const periodSelect = panel.querySelector(".dsapi-plus-period-select");
       const status = panel.querySelector(".dsapi-plus-status");
       if (periodSelect) periodSelect.value = period;
@@ -4250,15 +4252,19 @@
     state.lastPanelData = panelData;
     const expectedChartCount = panelData.sortedModels.length ? 6 : 5;
 
-    // 放宽条件：只要有 5 个以上图表就走增量路径，避免因预期计数微变触发全量重建
-    if (state.charts.length >= 5) {
+    // [修改] 原因：图表数量不足 5 时整面板重建会销毁月份下拉，导致原生下拉弹层瞬间收回
+    // 改为面板渲染过一次后一律走增量更新，缺失图表由 ensureCharts 补齐
+    if (panel.dataset.rendered === "1") {
       updatePanelIncremental(panel, panelData);
       updateChartsData(panelData);
+      ensureCharts(panel, panelData);
       return;
     }
 
     disposeCharts();
     panel.innerHTML = panelData.html;
+    // 标记面板已渲染完成，后续刷新一律增量更新，避免重建销毁月份下拉
+    panel.dataset.rendered = "1";
     // 重建后主动恢复鼠标交互，消除 hover 状态丢失导致的闪烁
     panel.style.pointerEvents = "none";
     requestAnimationFrame(() => { panel.style.pointerEvents = ""; });
@@ -4764,6 +4770,8 @@
           const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
           const option = buildChartOption(key, panelData);
           if (!container || !option) continue;
+          // 避免与 ensureCharts 并发初始化同一容器产生双实例
+          if (echarts.getInstanceByDom(container)) continue;
           const instance = echarts.init(container, null, { renderer: "svg" });
           const zr = instance.getZr();
           zr.on("mousemove", (event) => {
@@ -4782,6 +4790,44 @@
           for (const { instance } of state.charts) instance.resize();
         });
         state.chartResizeObserver.observe(panel);
+      })
+      .catch((error) => {
+        console.error("[DeepSeek Usage Panel Plus] ECharts init failed", error);
+      });
+  }
+
+  // 增量更新路径下补齐缺失的图表实例：首载时数据为空未创建、或实例被 dispose 后数据恢复
+  // 参数:
+  //   panel: Element，面板根节点
+  //   panelData: Object，本次渲染数据
+  // 返回: 无
+  // 背景：图表不足时走整面板重建会销毁月份下拉，导致原生下拉弹层瞬间收回，故改为增量补齐
+  function ensureCharts(panel, panelData) {
+    getEcharts()
+      .then((echarts) => {
+        if (!panel.isConnected) return;
+        // 仅补齐由 panelData 驱动的主图表，Key 明细图表由独立数据流管理
+        const keys = ["requests", "tokens", "composition", "models"];
+        for (const key of keys) {
+          const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
+          const option = buildChartOption(key, panelData);
+          if (!container || !option) continue;
+          // 已有实例或容器被其他实例占用时跳过，避免重复初始化
+          if (state.charts.some((e) => e.key === key)) continue;
+          if (echarts.getInstanceByDom(container)) continue;
+          const instance = echarts.init(container, null, { renderer: "svg" });
+          const zr = instance.getZr();
+          zr.on("mousemove", (event) => {
+            startTooltipKeeper(instance, event);
+          });
+          zr.on("globalout", () => {
+            if (stopTooltipKeeper(instance)) {
+              flushPendingChartUpdates();
+            }
+          });
+          instance.setOption(option);
+          state.charts.push({ key, instance });
+        }
       })
       .catch((error) => {
         console.error("[DeepSeek Usage Panel Plus] ECharts init failed", error);
@@ -6297,7 +6343,10 @@
       panel.className = "dsapi-plus-panel";
     }
 
-    if (!panel.isConnected || panel.parentNode !== reference.parentNode || panel.nextSibling !== reference) {
+    // [修改] 原因：页面 React 重渲染会替换“每月用量”锚点节点，原 nextSibling 判断会导致面板被
+    // 反复 insertBefore 移动，而移动 select 祖先会立即关闭已打开的原生下拉弹层（月份下拉收回）
+    // 改为仅在面板脱离文档或父容器变化时才重新插入，保持面板 DOM 位置稳定
+    if (!panel.isConnected || panel.parentNode !== reference.parentNode) {
       reference.parentNode.insertBefore(panel, reference);
     }
 
@@ -6425,8 +6474,13 @@
       if (isPanelOrTooltip) return;
       window.clearTimeout(state.mutationTimer);
       state.mutationTimer = window.setTimeout(() => {
-        const panel = ensurePanel();
-        if (!panel) return;
+        // [修改] 原因：原实现无条件调用 ensurePanel，页面任何 DOM 变化都会触发面板重定位，
+        // 导致已打开的原生下拉弹层被移动关闭；改为仅在面板缺失或确实需要刷新时恢复面板
+        const panel = document.getElementById(PANEL_ID);
+        if (!panel) {
+          scheduleRefresh(false);
+          return;
+        }
         const period = getSelectedPeriod();
         if (period !== state.selectedPeriod || !panel.dataset.loaded) {
           scheduleRefresh(false);
