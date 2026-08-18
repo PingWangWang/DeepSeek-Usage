@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.36.4
+// @version      1.37.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -4188,7 +4188,7 @@
           </div>
         </div>
 
-        <div class="dsapi-plus-section">
+        <div class="dsapi-plus-section" data-section="keyDetail">
           <div class="dsapi-plus-section-head">
             <div class="dsapi-plus-section-title">🔑 Key 明细</div>
             <span class="dsapi-plus-section-meta">${sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量"}</span>
@@ -4220,6 +4220,16 @@
             <div class="dsapi-plus-chart-frame" style="height:200px;">
               <div class="dsapi-plus-chart" style="width:100%;height:200px;" data-dsapi-chart="keyDaily"></div>
             </div>
+          </div>
+        </div>
+
+        <div class="dsapi-plus-section">
+          <div class="dsapi-plus-section-head">
+            <div class="dsapi-plus-section-title">📅 每日明细</div>
+          </div>
+          ${chartHeading("每日总费用与Token", "")}
+          <div class="dsapi-plus-chart-frame" style="height:200px;">
+            <div class="dsapi-plus-chart" style="width:100%;height:200px;" data-dsapi-chart="dailyTotal"></div>
           </div>
         </div>
       </div>
@@ -4324,7 +4334,8 @@
     state.keyUnitPrices = saved.unitPrices || {};
     state.keyDetailUpdateTime = saved.updateTime || "";
     updateKeyDetailUI();
-    initOrUpdateKeyCostChart(panel.querySelector(".dsapi-plus-section:last-child"));
+    // [修改] 原因：Key 明细章节改为按 data-section 标识定位，避免新增章节后 :last-child 指向错误
+    initOrUpdateKeyCostChart(panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]'));
   }
 
   function formatWallet(item) {
@@ -4595,6 +4606,7 @@
       case "models": return buildModelsChartOption(sortedModels.slice(0, 8));
       case "keyCost": return buildKeyCostChartOption();
       case "keyDaily": return buildKeyDailyChartOption();
+      case "dailyTotal": return buildDailyTotalChartOption(panelData);
       default: return null;
     }
   }
@@ -4698,7 +4710,7 @@
     }
 
     // 更新 Key 明细（仅当未通过导入按钮获取数据时）
-    const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+    const keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
     if (keySection) {
       const meta = keySection.querySelector(".dsapi-plus-section-meta");
       // 如果已有导入的 Key 数据，不覆盖内容，只更新 meta
@@ -4770,7 +4782,7 @@
       .then((echarts) => {
         if (!panel.isConnected) return;
 
-        const keys = ["requests", "tokens", "composition", "models", "keyCost", "keyDaily"];
+        const keys = ["requests", "tokens", "composition", "models", "keyCost", "keyDaily", "dailyTotal"];
         for (const key of keys) {
           const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
           const option = buildChartOption(key, panelData);
@@ -4812,7 +4824,7 @@
       .then((echarts) => {
         if (!panel.isConnected) return;
         // 仅补齐由 panelData 驱动的主图表，Key 明细图表由独立数据流管理
-        const keys = ["requests", "tokens", "composition", "models"];
+        const keys = ["requests", "tokens", "composition", "models", "dailyTotal"];
         for (const key of keys) {
           const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
           const option = buildChartOption(key, panelData);
@@ -5153,6 +5165,116 @@
     return option;
   }
 
+  // 构建"每日明细"总览图表：每日总费用 + 每日总 Token 双轴折线图
+  // 参数: panelData: Object，面板渲染数据（amount.days 提供每日 Token，cost CNY 块提供每日费用）
+  // 返回: ECharts option 对象；当月无每日数据时返回 null
+  function buildDailyTotalChartOption(panelData) {
+    const { amount, cost } = panelData;
+    // [修改] 原因：与"每日费用明细"共用最大显示日口径（getMaxDisplayDay），横轴只显示到当天（历史月为月末）
+    // 生成完整日期序列后按日期从 amount/cost 取值，缺失日期补 0
+    const { year, month } = parsePeriod(panelData.period);
+    const cnyBlock = (cost || []).find((b) => b.currency === "CNY");
+    const cnyDays = cnyBlock ? cnyBlock.days || [] : [];
+    // 将 API 返回的日期统一规范化为 YYYY-MM-DD，兼容 "YYYY-MM-DD" / "MM-DD" / 纯数字等格式
+    const normalizeDayKey = (dateStr) => {
+      const m = String(dateStr || "").match(/(\d{1,2})$/);
+      if (!m) return null;
+      const day = Number(m[1]);
+      if (day < 1 || day > 31) return null;
+      return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+    };
+    const costByDate = {};
+    for (const d of cnyDays) {
+      const key = normalizeDayKey(d.date);
+      if (key) costByDate[key] = d.amount || 0;
+    }
+    const tokenByDate = {};
+    for (const d of (amount.days || [])) {
+      const key = normalizeDayKey(d.date);
+      if (key) tokenByDate[key] = d.tokens || 0;
+    }
+    const endDay = getMaxDisplayDay(year, month);
+    const dates = [];
+    for (let d = 1; d <= endDay; d++) {
+      dates.push(year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0"));
+    }
+    const costData = dates.map((date) => costByDate[date] || 0);
+    const tokenData = dates.map((date) => tokenByDate[date] || 0);
+    if (!dates.length) return null;
+
+    const textColor = getChartTextColor();
+    const gridColor = getChartGridColor();
+    const option = chartBaseOption();
+    option.grid.left = 56;
+    option.grid.right = 64;
+    option.grid.top = 32;
+    option.xAxis.data = dates;
+    // 费用与 Token 量级差异大，使用双 y 轴避免其中一条曲线被压扁
+    option.yAxis = [
+      {
+        type: "value",
+        splitNumber: 1,
+        splitLine: { lineStyle: { color: gridColor } },
+        axisLabel: { color: textColor, align: "left", margin: 34, formatter: (v) => `¥${formatDecimal(v)}` },
+      },
+      {
+        type: "value",
+        splitNumber: 1,
+        splitLine: { show: false },
+        axisLabel: { color: textColor, formatter: compactNumber },
+      },
+    ];
+    option.tooltip.formatter = (params) => {
+      const idx = params[0].dataIndex;
+      const dayCost = costData[idx] || 0;
+      const dayTokens = tokenData[idx] || 0;
+      // 每日总单价 = 当日费用 / 当日 Token × 100万，Token 为 0 时记 0
+      const unitPrice = dayTokens > 0 ? (dayCost / dayTokens * 1000000) : 0;
+      return tooltipHtml(params[0].axisValue || "", [
+        { color: "#0C70F3", label: "每日总费用", value: formatCnyAmount(dayCost) },
+        { color: "#7BCB99", label: "每日总Token", value: formatInteger(dayTokens) },
+        { color: "#F59E0B", label: "每日总单价", value: `¥${formatDecimal(unitPrice)}/1M` },
+      ]);
+    };
+    // tooltip 保持在图表容器内但不强制裁剪，避免多出滚动条
+    option.tooltip.appendToBody = false;
+    option.tooltip.confine = false;
+    option.series = [
+      {
+        name: "每日总费用",
+        data: costData,
+        type: "line",
+        smooth: true,
+        showSymbol: false,
+        yAxisIndex: 0,
+        itemStyle: { color: "#0C70F3" },
+        lineStyle: { color: "#0C70F3", width: 1.5 },
+        emphasis: { disabled: true },
+      },
+      {
+        name: "每日总Token",
+        data: tokenData,
+        type: "line",
+        smooth: true,
+        showSymbol: false,
+        yAxisIndex: 1,
+        itemStyle: { color: "#7BCB99" },
+        lineStyle: { color: "#7BCB99", width: 1.5 },
+        emphasis: { disabled: true },
+      },
+    ];
+    option.legend = {
+      show: true,
+      top: 0,
+      left: "center",
+      textStyle: { color: textColor, fontSize: 11 },
+      icon: "roundRect",
+      itemWidth: 14,
+      itemHeight: 8,
+    };
+    return option;
+  }
+
   function buildHorizontalBarOption(items) {
     const textColor = getChartTextColor();
     const gridColor = getChartGridColor();
@@ -5211,6 +5333,17 @@
     ][index % 16];
   }
 
+  // 计算指定月份横轴最大显示日：当前月为当天（UTC），历史月为月末
+  // 参数: year: number，年份（四位）；month: number，月份（1-12，1 基）
+  // 返回: number，最大显示日（1-31）
+  function getMaxDisplayDay(year, month) {
+    const now = new Date();
+    const isCurrentMonth = year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
+    return isCurrentMonth
+      ? now.getUTCDate()
+      : new Date(Date.UTC(year, month, 0)).getUTCDate();
+  }
+
   /**
    * 补全 sortedDates 数组，确保从当月1号到当天（或月末）的每一天都存在
    * @param {string[]} dates - 日期数组 "YYYY-MM-DD"，会被原地修改
@@ -5218,11 +5351,8 @@
    * @param {number} month - 月份（1-12，1 基）
    */
   function fillDateRange(dates, year, month) {
-    const now = new Date();
-    const isCurrentMonth = year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
-    const endDay = isCurrentMonth
-      ? now.getUTCDate()
-      : new Date(Date.UTC(year, month, 0)).getUTCDate();
+    // [修改] 原因：最大显示日逻辑提取为 getMaxDisplayDay 供每日明细图表共用，保证两图横轴口径一致
+    const endDay = getMaxDisplayDay(year, month);
     const existing = new Set(dates);
     var prefix = year + "-" + String(month).padStart(2, "0");
     for (var d = 1; d <= endDay; d++) {
@@ -5736,7 +5866,7 @@
       if (retries < 5) { _keyDetailUIRetryTimer = setTimeout(function () { tryUpdateKeyDetailUI(retries + 1); }, 200); }
       return;
     }
-    var keySection = panel.querySelector(".dsapi-plus-section:last-child");
+    var keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
     if (!keySection) {
       if (retries < 5) { _keyDetailUIRetryTimer = setTimeout(function () { tryUpdateKeyDetailUI(retries + 1); }, 200); }
       return;
@@ -5749,7 +5879,7 @@
     const panel = document.getElementById(PANEL_ID);
     if (!panel) return;
 
-    const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+    const keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
     if (!keySection) return;
 
     // 更新 meta 文字
@@ -5941,7 +6071,7 @@
   }
 
   function applyKeyFilter(panel) {
-    const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+    const keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
     if (!keySection) return;
     // 更新表格
     const filtered = getFilteredKeyData();
@@ -5979,7 +6109,7 @@
         state.keyTableVisible = !state.keyTableVisible;
         toggleBtn.classList.toggle("active", state.keyTableVisible);
         saveKeyTableVisible();
-        const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+        const keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
         if (!keySection) return;
         const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
         if (tableWrap) {
@@ -6001,7 +6131,7 @@
         groupModelBtn.classList.toggle("active", state.groupByModel);
         saveGroupByModel();
         // 重新渲染表格和图表
-        const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+        const keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
         if (keySection) {
           const activeData = getFilteredKeyData();
           const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
@@ -6106,7 +6236,7 @@
         // 确保图表实例存在；不存在时主动初始化
         const hasKeyCost = state.charts.some((e) => e.key === "keyCost");
         if (state.keyDetailChartVisible && !hasKeyCost) {
-          const keySection = panel.querySelector(".dsapi-plus-section:last-child");
+          const keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
           if (keySection) initOrUpdateKeyCostChart(keySection);
         }
         requestAnimationFrame(() => {
