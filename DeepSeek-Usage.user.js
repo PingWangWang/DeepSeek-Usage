@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.37.0
+// @version      1.38.0
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -5200,36 +5200,48 @@
     }
     const costData = dates.map((date) => costByDate[date] || 0);
     const tokenData = dates.map((date) => tokenByDate[date] || 0);
+    // 每日总单价 = 当日费用 / 当日 Token × 100万，Token 为 0 时记 0（tooltip 与曲线共用同一数据源）
+    const unitPriceData = tokenData.map((t, i) => t > 0 ? (costData[i] / t * 1000000) : 0);
     if (!dates.length) return null;
 
     const textColor = getChartTextColor();
     const gridColor = getChartGridColor();
     const option = chartBaseOption();
     option.grid.left = 56;
-    option.grid.right = 64;
+    option.grid.right = 110;
     option.grid.top = 32;
     option.xAxis.data = dates;
-    // 费用与 Token 量级差异大，使用双 y 轴避免其中一条曲线被压扁
+    // [修改] 原因：单价量级（元/1M）远小于费用与 Token，共用左轴会被压成贴底直线，改为独立第三 y 轴
+    // 三个量纲各自独立缩放：左轴费用、右轴 Token、右轴外侧单价（offset 错开避免标签重叠）
     option.yAxis = [
       {
         type: "value",
+        position: "left",
         splitNumber: 1,
         splitLine: { lineStyle: { color: gridColor } },
         axisLabel: { color: textColor, align: "left", margin: 34, formatter: (v) => `¥${formatDecimal(v)}` },
       },
       {
         type: "value",
+        position: "right",
         splitNumber: 1,
         splitLine: { show: false },
-        axisLabel: { color: textColor, formatter: compactNumber },
+        axisLabel: { color: "#7BCB99", formatter: compactNumber },
+      },
+      {
+        type: "value",
+        position: "right",
+        offset: 54,
+        splitNumber: 1,
+        splitLine: { show: false },
+        axisLabel: { color: "#F59E0B", formatter: (v) => `¥${formatDecimal(v)}` },
       },
     ];
     option.tooltip.formatter = (params) => {
       const idx = params[0].dataIndex;
       const dayCost = costData[idx] || 0;
       const dayTokens = tokenData[idx] || 0;
-      // 每日总单价 = 当日费用 / 当日 Token × 100万，Token 为 0 时记 0
-      const unitPrice = dayTokens > 0 ? (dayCost / dayTokens * 1000000) : 0;
+      const unitPrice = unitPriceData[idx] || 0;
       return tooltipHtml(params[0].axisValue || "", [
         { color: "#0C70F3", label: "每日总费用", value: formatCnyAmount(dayCost) },
         { color: "#7BCB99", label: "每日总Token", value: formatInteger(dayTokens) },
@@ -5260,6 +5272,18 @@
         yAxisIndex: 1,
         itemStyle: { color: "#7BCB99" },
         lineStyle: { color: "#7BCB99", width: 1.5 },
+        emphasis: { disabled: true },
+      },
+      {
+        name: "每日总单价",
+        data: unitPriceData,
+        type: "line",
+        smooth: true,
+        showSymbol: false,
+        // 单价挂独立第三 y 轴，避免被费用量级压扁；虚线区分于费用实线
+        yAxisIndex: 2,
+        itemStyle: { color: "#F59E0B" },
+        lineStyle: { color: "#F59E0B", width: 1.5, type: "dashed" },
         emphasis: { disabled: true },
       },
     ];
