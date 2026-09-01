@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.0
+// @version      1.38.1
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -60,6 +60,8 @@
     keyDetailError: "",        // 加载错误信息
     keyDetailUpdateTime: "",   // 上次成功导入的时间
     keyUnitPrices: {},         // { model: { promptMiss: 单价, promptHit: 单价, response: 单价 } }
+    keyDetailAbortController: null, // 正在进行的 Key 明细导出请求（切月/连续刷新时用于取消旧请求，避免乱序覆盖）
+    keyDetailReqId: 0,                 // Key 明细请求自增序号（用于丢弃已被更新的旧请求结果）
 
     // Key 明细表格显示状态
     keyTableVisible: loadKeyTableVisible(),    // 默认不显示表格详情（已持久化）
@@ -311,9 +313,7 @@
         refresh(true);
         // 同时刷新数据 Key 明细数据（如果已导入过）
         if (state.keyDetailData && state.keyDetailData.length) {
-          const period = getSelectedPeriod();
-          const controller = new AbortController();
-          fetchKeyDetailFromExport(period, controller.signal);
+          fetchKeyDetailFromExport(getSelectedPeriod());
         }
       }, state.autoRefreshInterval);
     }
@@ -3924,7 +3924,7 @@
         console.log("[DeepSeek Usage Panel Plus] 订阅检查触发:", sub.name, "时间:", now.toLocaleTimeString());
         // 发送前先刷新数据 Key 明细数据
         try {
-          await fetchKeyDetailFromExport(getSelectedPeriod(), new AbortController().signal);
+          await fetchKeyDetailFromExport(getSelectedPeriod());
         } catch (e) { /* 刷新数据失败不影响发送，使用已有数据 */ }
         sendSubscriptionReport(sub).then(result => {
           if (result.success) {
@@ -4302,9 +4302,7 @@
     // 全量重渲染后恢复原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
     // 异步刷新数据 Key 明细（使用当前选中月份）
-    var period = getSelectedPeriod();
-    var controller = new AbortController();
-    fetchKeyDetailFromExport(period, controller.signal).catch(function () {});
+    fetchKeyDetailFromExport(getSelectedPeriod()).catch(function () {});
   }
 
   function restoreKeyDetailData(panel) {
@@ -5649,9 +5647,15 @@
   }
 
   // 从导出接口获取 Key 级用量数据
-  async function fetchKeyDetailFromExport(period, signal) {
+  async function fetchKeyDetailFromExport(period) {
     state.keyDetailLoading = true;
     state.keyDetailError = "";
+    // 取消上一次未完成的导出请求，避免快速切月/连续刷新时乱序覆盖
+    if (state.keyDetailAbortController) { try { state.keyDetailAbortController.abort(); } catch (e) { /* ignore */ } }
+    const controller = new AbortController();
+    state.keyDetailAbortController = controller;
+    const signal = controller.signal;
+    const reqId = ++state.keyDetailReqId;
     updateKeyDetailUI();
 
     try {
@@ -5860,6 +5864,7 @@
         sample: sorted.slice(0, 3),
       });
 
+      if (reqId !== state.keyDetailReqId) return null; // 已被更新的请求覆盖，丢弃旧结果
       state.keyDetailData = sorted;
       state.keyDetailDailyData = dailyData;
       state.keyDetailUpdateTime = new Date().toLocaleTimeString("zh-CN");
@@ -5871,6 +5876,12 @@
       return sorted;
     } catch (error) {
       console.error("[DeepSeek Usage Panel Plus] 获取 Key 明细失败", error);
+      // 被更新的请求取消（切月/连续刷新）：静默忽略，由新请求负责刷新 UI
+      if (error && (error.name === "AbortError" || /abort/i.test(String(error.message || "")))) {
+        return null;
+      }
+      // 已被更新的请求覆盖，丢弃旧错误，不污染界面
+      if (reqId !== state.keyDetailReqId) return null;
       state.keyDetailLoading = false;
       state.keyDetailError = error.message || String(error);
       scheduleKeyDetailUIUpdate();
@@ -6037,6 +6048,17 @@
       }
       instance.resize();
     });
+  }
+
+  // 释放 Key 费用分布图实例（切月时清空旧月份图表，防止残留旧月份数据）
+  function disposeKeyCostChart() {
+    for (let ci = state.charts.length - 1; ci >= 0; ci--) {
+      if (state.charts[ci].key === "keyCost") {
+        try { state.charts[ci].instance.dispose(); } catch (e) { /* ignore */ }
+        state.charts.splice(ci, 1);
+        break;
+      }
+    }
   }
 
   function renderKeyTable(keys, costBlocks, visible = true) {
@@ -6257,9 +6279,8 @@
         if (chartWrap) {
           chartWrap.style.display = state.keyDetailChartVisible ? "" : "none";
         }
-        // 确保图表实例存在；不存在时主动初始化
-        const hasKeyCost = state.charts.some((e) => e.key === "keyCost");
-        if (state.keyDetailChartVisible && !hasKeyCost) {
+        // [修复] 显示时始终基于最新 keyDetailData 重建/重绘，避免残留旧月份数据
+        if (state.keyDetailChartVisible) {
           const keySection = panel.querySelector('.dsapi-plus-section[data-section="keyDetail"]');
           if (keySection) initOrUpdateKeyCostChart(keySection);
         }
@@ -6414,15 +6435,15 @@
     if (periodSelect) {
       periodSelect.addEventListener("change", () => {
         state.selectedPeriod = periodSelect.value;
-        // 清除旧的 Key 明细数据
+        // 清除旧的 Key 明细数据与费用分布图，避免切月后残留旧月份内容
         state.keyDetailData = null;
         state.keyDetailError = "";
         state.keyDetailUpdateTime = "";
         localStorage.removeItem("dsapi_plus_key_detail");
+        disposeKeyCostChart();
         refresh(true);
-        // 自动刷新数据 Key 明细
-        const controller = new AbortController();
-        fetchKeyDetailFromExport(periodSelect.value, controller.signal);
+        // 自动刷新数据 Key 明细（内部会取消上一次未完成的请求）
+        fetchKeyDetailFromExport(periodSelect.value);
       });
     }
     // 初始化时应用原生内容显示状态
@@ -6603,6 +6624,8 @@
     window.clearTimeout(state.routeTimer);
     state.abortController?.abort();
     state.abortController = null;
+    state.keyDetailAbortController?.abort();
+    state.keyDetailAbortController = null;
     if (state.observer) {
       state.observer.disconnect();
       state.observer = null;
