@@ -7067,6 +7067,18 @@
     option.grid.right = 56;
     option.grid.top = 40;
     option.xAxis.data = labels;
+    const hasMultiYear =
+      new Set(series.map((item) => String(item.period || "").split("-")[0])).size > 1;
+    option.xAxis.axisLabel = {
+      color: textColor,
+      interval: "auto",
+      formatter: (value) => {
+        const parts = String(value || "").split("-");
+        if (parts.length < 2) return value;
+        const [year, month] = parts;
+        return hasMultiYear ? `${year}年${Number(month)}月` : `${Number(month)}月`;
+      },
+    };
     option.yAxis = [
       {
         type: "value",
@@ -7086,7 +7098,13 @@
     option.tooltip.formatter = (params) => {
       const idx = params[0].dataIndex;
       const item = series[idx] || {};
-      return tooltipHtml(item.period || "", [
+      const parts = String(item.period || "").split("-");
+      let periodTitle = item.period || "";
+      if (parts.length >= 2) {
+        const [year, month] = parts;
+        periodTitle = hasMultiYear ? `${year}年${Number(month)}月` : `${Number(month)}月`;
+      }
+      return tooltipHtml(periodTitle, [
         { color: "#0C70F3", label: "月费用", value: formatCnyAmount(item.costCNY || 0) },
         { color: "#7BCB99", label: "月Token", value: formatInteger(item.tokens || 0) },
         { color: "#F59E0B", label: "缓存命中率", value: formatPercent(item.cacheHitRate || 0) },
