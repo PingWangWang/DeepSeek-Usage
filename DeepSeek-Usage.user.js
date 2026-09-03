@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.2
+// @version      1.38.3
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -4931,13 +4931,21 @@
 
     const summaryEl = panel.querySelector(".dsapi-plus-summary");
     if (summaryEl) {
-      summaryEl.innerHTML =
-        '<div class="dsapi-plus-section-head" style="margin-bottom:12px;width:100%;"><div class="dsapi-plus-section-title">💰 费用摘要</div></div>' +
+      const itemsHtml =
         summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "") +
         summaryItem("当月费用", monthCostText, "", costDetail) +
         summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
         summaryItem("当月用量", formatInteger(monthlyUsageDisplay), "Tokens", usageDetail) +
         summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "");
+      const head = summaryEl.querySelector(":scope > .dsapi-plus-section-head");
+      if (head) {
+        summaryEl.querySelectorAll(":scope > .dsapi-plus-summary-item").forEach((el) => el.remove());
+        head.insertAdjacentHTML("afterend", itemsHtml);
+      } else {
+        summaryEl.innerHTML =
+          '<div class="dsapi-plus-section-head" style="margin-bottom:12px;width:100%;"><div class="dsapi-plus-section-title">💰 费用摘要</div></div>' +
+          itemsHtml;
+      }
     }
 
     // [修改] 原因：已删除「请求统计 / Token统计 / Token构成」三个图表，头部数值只剩「模型分布」带 value
