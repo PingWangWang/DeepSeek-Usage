@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.3
+// @version      1.38.4
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -33,8 +33,14 @@
   };
 
 
+  // [需求 4] 区间起止持久化：刷新/重开页面后仍沿用上次设置，而非重置为年初至今。
+  // 读取持久化区间（越界/非法时回退到默认窗口），供 state 初始化使用。
+  const initialRange = loadRangeWindow();
+
   const state = {
-    selectedPeriod: "",
+    rangeStart: initialRange.start, // 面板区间聚合起始月（如 "2026-1"），持久化
+    rangeEnd: initialRange.end,     // 面板区间聚合结束月（如 "2026-9"），持久化
+    rangeKey: "",            // 区间去重键 `${start}~${end}`
     observer: null,
     refreshTimer: 0,
     mutationTimer: 0,
@@ -97,15 +103,6 @@
     subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
     compactViewVisible: loadCompactViewVisible(), // 精简视图，默认 false
 
-    // 月度统计区块（独立于单月 panelData，跨月聚合分析）
-    monthlySummaryVisible: loadMonthSummaryVisible(), // 区块显示开关，默认 false，持久化
-    monthRangeCache: loadMonthRangeCache(),           // 跨月聚合数据缓存 { fetchedAt, start, end, series }
-    monthlySummaryData: null,                          // 当前区块渲染数据（monthlySeries + 汇总卡）
-    monthRangeReqId: 0,                                // 跨月请求自增序号，丢弃被覆盖的旧请求结果
-    monthRangeLoading: false,                          // 区块是否在加载跨月数据
-    monthRangeStart: loadMonthRangeStart(),           // 月度统计范围起始（如 "2026-1"），默认当年 1 月，持久化
-    monthRangeEnd: loadMonthRangeEnd(),               // 月度统计范围结束（如 "2026-9"），默认当前月，持久化
-
     // Key 明细区块 / 每日明细区块 整体显示开关（默认开启，持久化）
     keyDetailVisible: loadKeyDetailVisible(),
     dailyDetailVisible: loadDailyDetailVisible(),
@@ -116,9 +113,12 @@
   function loadSectionVisible() {
     try {
       const saved = localStorage.getItem("dsapi_plus_section_visible");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        // 合并默认值：旧存档缺 monthTrend 键时补默认 true（月度趋势默认显示）
+        return Object.assign({ models: false, monthTrend: true }, JSON.parse(saved));
+      }
     } catch (e) { /* ignore */ }
-    return { models: false };
+    return { models: false, monthTrend: true };
   }
 
   function saveSectionVisible() {
@@ -174,75 +174,6 @@
     catch (e) { /* ignore */ }
   }
 
-  // 月度统计区块开关的持久化读写
-  function loadMonthSummaryVisible() {
-    try { return localStorage.getItem("dsapi_plus_month_summary_visible") === "true"; }
-    catch (e) { /* ignore */ }
-    return false;
-  }
-
-  function saveMonthSummaryVisible() {
-    try { localStorage.setItem("dsapi_plus_month_summary_visible", String(state.monthlySummaryVisible)); }
-    catch (e) { /* ignore */ }
-  }
-
-  // 月度统计范围起止（用于构建下拉框选项，格式 "YYYY-M"，不补零与现有约定一致）
-  // 默认范围 = 当年 1 月 → 当前月（YTD 语义），由 getDefaultMonthWindow 计算
-  function loadMonthRangeStart() {
-    try {
-      const saved = localStorage.getItem("dsapi_plus_month_range_start");
-      if (saved && /^\d{4}-\d{1,2}$/.test(saved)) return saved;
-    } catch (e) { /* ignore */ }
-    return getDefaultMonthWindow().start;
-  }
-
-  function saveMonthRangeStart() {
-    try { localStorage.setItem("dsapi_plus_month_range_start", String(state.monthRangeStart)); }
-    catch (e) { /* ignore */ }
-  }
-
-  function loadMonthRangeEnd() {
-    try {
-      const saved = localStorage.getItem("dsapi_plus_month_range_end");
-      if (saved && /^\d{4}-\d{1,2}$/.test(saved)) return saved;
-    } catch (e) { /* ignore */ }
-    return getDefaultMonthWindow().end;
-  }
-
-  function saveMonthRangeEnd() {
-    try { localStorage.setItem("dsapi_plus_month_range_end", String(state.monthRangeEnd)); }
-    catch (e) { /* ignore */ }
-  }
-
-  // 跨月聚合数据缓存：带 TTL，TTL 内命中直接读缓存不重拉
-  const MONTH_RANGE_CACHE_KEY = "dsapi_plus_month_range_cache";
-  const MONTH_RANGE_CACHE_TTL = 30 * 60 * 1000; // 30 分钟
-
-  function loadMonthRangeCache() {
-    try {
-      const saved = localStorage.getItem(MONTH_RANGE_CACHE_KEY);
-      if (!saved) return null;
-      const parsed = JSON.parse(saved);
-      // 结构校验：缺关键字段视为无效缓存
-      if (!parsed || !parsed.fetchedAt || !Array.isArray(parsed.series)) return null;
-      return parsed;
-    } catch (e) { /* ignore */ }
-    return null;
-  }
-
-  function saveMonthRangeCache(cache) {
-    try {
-      localStorage.setItem(MONTH_RANGE_CACHE_KEY, JSON.stringify(cache));
-    } catch (e) { /* ignore */ }
-  }
-
-  // 判断缓存是否在 TTL 内且窗口一致（命中则直接使用）
-  function isMonthRangeCacheValid(cache, start, end) {
-    if (!cache || !cache.fetchedAt) return false;
-    if (cache.start !== start || cache.end !== end) return false;
-    return (Date.now() - cache.fetchedAt) < MONTH_RANGE_CACHE_TTL;
-  }
-
   // Key 明细区块 / 每日明细区块整体显示开关（默认开启，持久化）
   function loadKeyDetailVisible() {
     try { return localStorage.getItem("dsapi_plus_key_detail_visible") !== "false"; }
@@ -293,6 +224,41 @@
     } catch (e) { /* ignore */ }
   }
 
+  // ========== 面板区间起止持久化（需求 4：刷新页面后保留用户设置的区间） ==========
+  // 读取上次保存的区间窗口；缺失 / 非法 / 超出可选月份范围时回退到默认窗口（当年 1 月 → 当前月）
+  function loadRangeWindow() {
+    const dflt = getDefaultMonthWindow();
+    try {
+      const s = localStorage.getItem("dsapi_plus_range_start") || "";
+      const e = localStorage.getItem("dsapi_plus_range_end") || "";
+      const valid = (p) => /^\d{4}-\d{1,2}$/.test(p);
+      if (!valid(s) || !valid(e)) return dflt;
+      const toNum = (p) => {
+        const { year, month } = parsePeriod(p);
+        return year * 100 + month;
+      };
+      let start = s;
+      let end = e;
+      if (toNum(start) > toNum(end)) { const t = start; start = end; end = t; }
+      // 可选范围与 buildMonthSummaryOptionsList 一致：当前年往前 3 年 → 当前月
+      const now = new Date();
+      const nowPeriod = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+      const minPeriod = `${now.getUTCFullYear() - 3}-1`;
+      const inWindow = (p) => toNum(p) >= toNum(minPeriod) && toNum(p) <= toNum(nowPeriod);
+      if (!inWindow(start) || !inWindow(end)) return dflt;
+      return { start, end };
+    } catch (e) { /* ignore */ }
+    return dflt;
+  }
+
+  function saveRangeWindow() {
+    try {
+      localStorage.setItem("dsapi_plus_range_start", String(state.rangeStart));
+      localStorage.setItem("dsapi_plus_range_end", String(state.rangeEnd));
+    } catch (e) { /* ignore */ }
+  }
+
+  // 费用摘要「当月费用」展示开关（默认关闭，遵循区间模式默认不展示单月费用的设计，持久化）
   function loadKeyDetailChartVisible() {
     try { return localStorage.getItem("dsapi_plus_key_chart_visible") !== "false"; }
     catch (e) { /* ignore */ }
@@ -308,6 +274,7 @@
     if (!state.keyDetailData || !state.keyDetailData.length) return;
     try {
       const payload = {
+        range: state.rangeStart && state.rangeEnd ? `${state.rangeStart}~${state.rangeEnd}` : "",
         data: state.keyDetailData,
         unitPrices: state.keyUnitPrices,
         updateTime: state.keyDetailUpdateTime,
@@ -416,9 +383,10 @@
     if (state.autoRefreshInterval > 0) {
       state.autoRefreshTimer = setInterval(() => {
         refresh(true);
-        // 同时刷新数据 Key 明细数据（如果已导入过）
+        // 同时刷新 Key 明细数据（如果已导入过）——[需求 1] 跟随面板完整区间
         if (state.keyDetailData && state.keyDetailData.length) {
-          fetchKeyDetailFromExport(getSelectedPeriod());
+          const rg = getSelectedRange();
+          fetchKeyDetailFromExport(rg.start, rg.end);
         }
       }, state.autoRefreshInterval);
     }
@@ -1040,78 +1008,6 @@
         font-size: 13px;
         line-height: 20px;
         padding: 16px;
-      }
-      /* ========== 月度统计区块样式 ========== */
-      .dsapi-plus-month-summary-refresh-btn {
-        appearance: none;
-        box-sizing: border-box;
-        height: 28px;
-        min-width: 56px;
-        padding: 0 14px;
-        font-size: 12px;
-        line-height: 1;
-        border-radius: 6px;
-        text-align: center;
-        border: 1px solid var(--dsapi-plus-muted);
-        background: transparent;
-        color: var(--dsapi-plus-muted);
-        cursor: pointer;
-        opacity: 0.7;
-        transition: none;
-        white-space: nowrap;
-      }
-      .dsapi-plus-month-summary-refresh-btn:hover {
-        opacity: 1;
-        background: rgba(2, 14, 54, 0.05);
-        color: var(--dsapi-plus-text);
-      }
-      body.dark .dsapi-plus-month-summary-refresh-btn:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
-      /* 汇总卡：四宫格，flex 换行自适应 */
-      /* 加载占位：居中 spinner + 提示 */
-      .dsapi-plus-month-summary-loading {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        padding: 28px 0;
-        color: var(--dsapi-plus-muted);
-      }
-      .dsapi-plus-month-summary-spinner {
-        width: 22px;
-        height: 22px;
-        border: 2px solid rgba(2, 14, 54, 0.12);
-        border-top-color: #0C70F3;
-        border-radius: 50%;
-        animation: dsapi-plus-spin 0.8s linear infinite;
-      }
-      body.dark .dsapi-plus-month-summary-spinner {
-        border-color: rgba(255, 255, 255, 0.14);
-        border-top-color: #0C70F3;
-      }
-      @keyframes dsapi-plus-spin {
-        to { transform: rotate(360deg); }
-      }
-      .dsapi-plus-month-summary-tip {
-        font-size: 12px;
-      }
-      .dsapi-plus-month-summary-error {
-        border: 1px solid rgba(214, 69, 65, 0.28);
-        border-radius: 8px;
-        color: rgb(170, 49, 45);
-        background: rgba(214, 69, 65, 0.04);
-        font-size: 13px;
-        padding: 16px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      body.dark .dsapi-plus-month-summary-error {
-        color: rgb(255, 145, 140);
-        border-color: rgba(214, 69, 65, 0.4);
-        background: rgba(214, 69, 65, 0.1);
       }
       .dsapi-plus-detail-layout {
         display: grid;
@@ -2037,30 +1933,6 @@
     return score;
   }
 
-  async function loadData(period, signal) {
-    const { year, month } = parsePeriod(period);
-    const query = `year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
-    const [summaryJson, amountJson, costJson] = await Promise.all([
-      fetchJson("/api/v0/users/get_user_summary", signal),
-      fetchJson(`/api/v0/usage/amount?${query}`, signal),
-      fetchJson(`/api/v0/usage/cost?${query}`, signal),
-    ]);
-
-    return {
-      period: `${year}-${month}`,
-      summary: normalizeSummary(getBizData(summaryJson)),
-      amount: normalizeAmount(getBizData(amountJson)),
-      cost: normalizeCost(getBizData(costJson)),
-      debug: {
-        auth: { tokenFound: state.tokenSource !== "none", tokenSource: state.tokenSource },
-        summary: summarizeShape(summaryJson),
-        amount: summarizeShape(amountJson),
-        cost: summarizeShape(costJson),
-        amountRawFields: inspectAmountFields(getBizData(amountJson)),
-      },
-    };
-  }
-
   function parsePeriod(period) {
     const matched = String(period || "").match(/^(\d{4})-(\d{1,2})$/);
     if (matched) return { year: Number(matched[1]), month: Number(matched[2]) };
@@ -2092,45 +1964,271 @@
     return results;
   }
 
-  // 按月聚合跨月区间的月维度概要。每个条目含费用、Token、缓存命中率。
+  // ========== 按单月分区缓存（需求 2：历史月数据不可变，缓存提速） ==========
+  // 历史月永久缓存（无 TTL），当前月按短 TTL 缓存，避免频繁重复请求今日数据。
+  const MONTH_CACHE_KEY = "dsapi_plus_month_cache";
+  const MONTH_CACHE_TTL_CURRENT = 5 * 60 * 1000; // 当前月 5 分钟
+
+  function loadMonthCache() {
+    try {
+      const saved = localStorage.getItem(MONTH_CACHE_KEY);
+      if (!saved) return {};
+      const parsed = JSON.parse(saved);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (e) { return {}; }
+  }
+
+  function saveMonthCache(cache) {
+    try { localStorage.setItem(MONTH_CACHE_KEY, JSON.stringify(cache)); }
+    catch (e) { /* storage quota 不足时忽略 */ }
+  }
+
+  // 当前月（含今天）周期字符串，如 "2026-9"
+  function currentMonthPeriod() {
+    const now = new Date();
+    return `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+  }
+
+  // 判断某月是否为历史月（严格早于当前月），历史月数据不可变，可永久缓存
+  function isPastMonth(period) {
+    const toNum = (p) => { const { year, month } = parsePeriod(p); return year * 100 + month; };
+    return toNum(period) < toNum(currentMonthPeriod());
+  }
+
+  // 取单月缓存：历史月命中即返回（永不过期），当前月在 TTL 内返回，否则 null
+  function getCachedMonth(period) {
+    const entry = loadMonthCache()[period];
+    if (!entry) return null;
+    if (isPastMonth(period)) return entry; // 历史月永久缓存
+    if (Date.now() - (entry.fetchedAt || 0) < MONTH_CACHE_TTL_CURRENT) return entry;
+    return null;
+  }
+
+  // 单月结果写入缓存（仅写入实际拉取到的数据）
+  function putCachedMonth(period, amount, cost) {
+    const cache = loadMonthCache();
+    cache[period] = { amount, cost, fetchedAt: Date.now() };
+    saveMonthCache(cache);
+  }
+
+  // 清除所有用量数据缓存（需求 3：对全部数据缓存生效），保留用户设置项
+  function clearAllDataCaches() {
+    try { localStorage.removeItem(MONTH_CACHE_KEY); } catch (e) { /* ignore */ }
+    // [需求 1] Key 明细导出行缓存同样属于数据缓存，一并清除
+    try { localStorage.removeItem(KEY_DETAIL_ROWS_CACHE_KEY); } catch (e) { /* ignore */ }
+  }
+
+  // ========== Key 明细导出行缓存（需求 1 配套：区间 = 多月度合并） ==========
+  // 缓存每次 export ZIP 解析出的 CSV 行（含表头），供跨月聚合复用：
+  // 历史月不可变 → 永久缓存；当前月按短 TTL，保证今日数据最新。
+  const KEY_DETAIL_ROWS_CACHE_KEY = "dsapi_plus_keydetail_rows_cache";
+  const KEY_DETAIL_ROWS_TTL_CURRENT = 5 * 60 * 1000; // 当前月 5 分钟
+
+  function loadKeyDetailRowsCache() {
+    try {
+      const saved = localStorage.getItem(KEY_DETAIL_ROWS_CACHE_KEY);
+      if (!saved) return {};
+      const parsed = JSON.parse(saved);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (e) { return {}; }
+  }
+
+  function saveKeyDetailRowsCache(cache) {
+    try { localStorage.setItem(KEY_DETAIL_ROWS_CACHE_KEY, JSON.stringify(cache)); }
+    catch (e) { /* storage quota 不足时忽略 */ }
+  }
+
+  // 取某月缓存的导出行：历史月永久有效，当前月在 TTL 内有效，否则返回 null
+  function getCachedExportRows(period) {
+    const entry = loadKeyDetailRowsCache()[period];
+    if (!entry) return null;
+    if (isPastMonth(period)) return entry;
+    if (Date.now() - (entry.fetchedAt || 0) < KEY_DETAIL_ROWS_TTL_CURRENT) return entry;
+    return null;
+  }
+
+  function putCachedExportRows(period, headers, rows) {
+    const cache = loadKeyDetailRowsCache();
+    cache[period] = { headers, rows, fetchedAt: Date.now() };
+    saveKeyDetailRowsCache(cache);
+  }
+
+  // 加载单月导出行（{ headers, rows }）：优先命中缓存，未命中才下载 ZIP 并解析
+  async function loadExportRowsForMonth(period, signal) {
+    const cached = getCachedExportRows(period);
+    if (cached) return { headers: cached.headers, rows: cached.rows, fromCache: true };
+    const { year, month } = parsePeriod(period);
+    const query = `year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
+
+    const zipBlob = await fetchExportBlob(`/api/v0/usage/export?${query}`, signal);
+    const zipBuffer = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Blob 转 ArrayBuffer 失败"));
+      reader.readAsArrayBuffer(zipBlob);
+    });
+    if (typeof JSZip === "undefined") throw new Error("JSZip 库未加载");
+    const zip = await JSZip.loadAsync(zipBuffer);
+    const csvFiles = Object.keys(zip.files).filter((name) => /amount.*\.csv$/i.test(name));
+    if (!csvFiles.length) throw new Error(`ZIP 中未找到 amount-*.csv 文件（${period}）`);
+    // JSZip 的 async 方法在 GM 沙箱中会挂起，需手动解压提取 CSV
+    const csvContent = extractFileFromZip(zipBuffer, csvFiles[0]);
+    if (!csvContent) throw new Error("无法从 ZIP 中提取 " + csvFiles[0]);
+    const { headers, rows } = parseCSV(csvContent);
+    putCachedExportRows(period, headers, rows);
+    return { headers, rows, fromCache: false };
+  }
+
+  // 加载单月 amount+cost：优先命中分区缓存，未命中才发起网络请求
   // 参数:
-  //   start: string，如 "2025-10"
-  //   end: string，如 "2026-09"
-  //   signal: AbortSignal|null，超时/取消信号
-  // 返回:
-  //   { series, start, end } —— series 为按月升序数组
-  async function loadMonthRange(start, end, signal) {
+  //   period: string，如 "2026-9"
+  //   signal: AbortSignal|null
+  // 返回: { period, amount, cost, fromCache }
+  async function loadMonthData(period, signal) {
+    const cached = getCachedMonth(period);
+    if (cached) return { period, amount: cached.amount, cost: cached.cost, fromCache: true };
+    const { year, month } = parsePeriod(period);
+    const query = `year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
+    const [amountJson, costJson] = await Promise.all([
+      fetchJson(`/api/v0/usage/amount?${query}`, signal),
+      fetchJson(`/api/v0/usage/cost?${query}`, signal),
+    ]);
+    const amount = normalizeAmount(getBizData(amountJson));
+    const cost = normalizeCost(getBizData(costJson));
+    putCachedMonth(period, amount, cost);
+    return { period, amount, cost, fromCache: false };
+  }
+
+  // 跨月聚合费用：按币种合并各月的 modelCosts/keyCosts/按日费用
+  // 参数: collected —— loadMonthData 结果数组（含 amount/cost/period）
+  // 返回: 与 normalizeCost 兼容的 cost 数组（每个币种一个块，含合并后的 modelCosts/keyCosts/days）
+  function mergeCostByCurrency(collected) {
+    const byCurrency = {};
+    for (const item of collected) {
+      if (!item || !item.cost) continue;
+      for (const block of item.cost) {
+        const cur = block.currency;
+        if (!cur) continue;
+        if (!byCurrency[cur]) byCurrency[cur] = { currency: cur, amount: 0, modelCosts: [], keyCosts: [], days: [] };
+        const target = byCurrency[cur];
+        target.amount += block.amount || 0;
+        // 按日费用拼接：以 "YYYY-MM-DD" 为键跨月合并
+        const dayByDate = {};
+        for (const dc of (target.days || [])) dayByDate[dc.date] = dc;
+        for (const dc of (block.days || [])) {
+          const { year, month } = parsePeriod(item.period);
+          const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+          const dayNum = String(dc.date).replace(/.*-/, "");
+          const dayKey = prefix + String(dayNum).padStart(2, "0");
+          let exist = dayByDate[dayKey];
+          if (!exist) { exist = { date: dayKey, amount: 0 }; dayByDate[dayKey] = exist; target.days.push(exist); }
+          exist.amount += dc.amount || 0;
+        }
+        // 模型费用合并
+        for (const mc of (block.modelCosts || [])) {
+          let exist = target.modelCosts.find((x) => x.model === mc.model);
+          if (!exist) { exist = { model: mc.model, amount: 0, usageCostMap: {} }; target.modelCosts.push(exist); }
+          exist.amount += mc.amount || 0;
+          for (const [t, v] of Object.entries(mc.usageCostMap || {})) exist.usageCostMap[t] = (exist.usageCostMap[t] || 0) + v;
+        }
+        // Key 费用合并
+        for (const kc of (block.keyCosts || [])) {
+          let exist = target.keyCosts.find((x) => x.key === kc.key);
+          if (!exist) { exist = { key: kc.key, amount: 0, usageCostMap: {} }; target.keyCosts.push(exist); }
+          exist.amount += kc.amount || 0;
+          for (const [t, v] of Object.entries(kc.usageCostMap || {})) exist.usageCostMap[t] = (exist.usageCostMap[t] || 0) + v;
+        }
+      }
+    }
+    return Object.values(byCurrency);
+  }
+
+  // 加载指定起止月份的区间聚合数据，作为主面板（整体按区间）的唯一数据源。
+  // 逐月复用 loadMonthData（带历史月永久缓存 + 当前月短 TTL），再跨月聚合为单一 amount/cost/monthlySeries。
+  // 参数:
+  //   start/end: string，如 "2025-10" / "2026-09"
+  //   signal: AbortSignal|null
+  // 返回: { period, start, end, months, summary, amount, cost, monthlySeries }
+  async function loadRange(start, end, signal) {
     const months = enumerateMonths(start, end);
-    // 每个月的任务：并行拉 amount + cost，产出一条聚合明细
-    const tasks = months.map((period) => async () => {
+    const tasks = months.map((period) => () => loadMonthData(period, signal).catch((error) => {
+      console.warn("[DeepSeek Usage Panel Plus] 区间单月请求失败，降级为 0", error);
+      return { period, amount: null, cost: null, fromCache: false };
+    }));
+    const collected = await runWithConcurrency(tasks, MONTH_RANGE_MAX_CONCURRENCY);
+
+    // 账户级信息（余额等）与月份无关，仅加载一次
+    let summary = { currentToken: 0, totalUsage: 0, monthlyUsage: 0, totalAvailableTokenEstimation: 0, monthlyCosts: [], normalWallets: [], bonusWallets: [] };
+    try {
+      const summaryJson = await fetchJson("/api/v0/users/get_user_summary", signal);
+      summary = normalizeSummary(getBizData(summaryJson));
+    } catch (e) { /* 摘要失败不阻断区间聚合 */ }
+
+    // 跨月聚合 amount
+    const modelMap = {}, keyMap = {}, dayByKey = {};
+    let aggRequest = 0, aggResponse = 0, aggPromptMiss = 0, aggPromptHit = 0, aggTokens = 0;
+    const monthlySeries = [];
+    for (const item of collected) {
+      if (!item || !item.amount) {
+        monthlySeries.push({ period: item ? item.period : "", costCNY: 0, tokens: 0, requests: 0, cacheHitRate: 0 });
+        continue;
+      }
+      const { amount, cost, period } = item;
+      // 模型合并
+      for (const m of amount.models) {
+        if (!modelMap[m.model]) modelMap[m.model] = { model: m.model, request: 0, response: 0, promptMiss: 0, promptHit: 0, tokens: 0 };
+        const t = modelMap[m.model];
+        t.request += m.request; t.response += m.response; t.promptMiss += m.promptMiss; t.promptHit += m.promptHit; t.tokens += m.tokens;
+      }
+      // Key 合并
+      for (const k of amount.keys) {
+        if (!keyMap[k.key]) keyMap[k.key] = { key: k.key, request: 0, response: 0, promptMiss: 0, promptHit: 0, tokens: 0, cacheHitRate: 0 };
+        const kt = keyMap[k.key];
+        kt.request += k.request; kt.response += k.response; kt.promptMiss += k.promptMiss; kt.promptHit += k.promptHit; kt.tokens += k.tokens;
+        const pt = kt.promptMiss + kt.promptHit;
+        kt.cacheHitRate = pt > 0 ? kt.promptHit / pt : 0;
+      }
+      // 每日明细拼接（带完整日期 YYYY-MM-DD，跨月共用同一条序列）
       const { year, month } = parsePeriod(period);
-      const query = `year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
-      const [amountJson, costJson] = await Promise.all([
-        fetchJson(`/api/v0/usage/amount?${query}`, signal),
-        fetchJson(`/api/v0/usage/cost?${query}`, signal),
-      ]);
-      const amount = normalizeAmount(getBizData(amountJson));
-      const cost = normalizeCost(getBizData(costJson));
+      const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+      for (const d of (amount.days || [])) {
+        const dayNum = String(d.date).replace(/.*-/, "");
+        const dayKey = prefix + String(dayNum).padStart(2, "0");
+        if (!dayByKey[dayKey]) {
+          dayByKey[dayKey] = { date: dayKey, request: 0, response: 0, promptMiss: 0, promptHit: 0, tokens: 0, models: [] };
+        }
+        const td = dayByKey[dayKey];
+        td.request += d.request; td.response += d.response; td.promptMiss += d.promptMiss; td.promptHit += d.promptHit; td.tokens += d.tokens;
+      }
+      // 汇总
+      aggRequest += amount.aggregate.request; aggResponse += amount.aggregate.response;
+      aggPromptMiss += amount.aggregate.promptMiss; aggPromptHit += amount.aggregate.promptHit; aggTokens += amount.aggregate.tokens;
+      // 月度序列（费用按 CNY 计）
       const costCNY = sumCurrencyAmount(cost, "CNY", "amount");
       const tokens = amount.aggregate.tokens;
       const requests = amount.aggregate.request;
       const promptTotal = amount.aggregate.promptMiss + amount.aggregate.promptHit;
       const cacheHitRate = promptTotal > 0 ? amount.aggregate.promptHit / promptTotal : 0;
-      return { period, costCNY, tokens, requests, cacheHitRate };
-    });
+      monthlySeries.push({ period, costCNY, tokens, requests, cacheHitRate });
+    }
 
-    const collected = await runWithConcurrency(tasks, MONTH_RANGE_MAX_CONCURRENCY);
-    const series = months
-      .map((period, index) => {
-        // 单月失败降级为 0，避免缺月导致后续环比出现跳空
-        const item = collected[index];
-        return item || { period, costCNY: 0, tokens: 0, requests: 0, cacheHitRate: 0 };
-      });
+    const models = Object.values(modelMap).sort((a, b) => b.tokens - a.tokens || b.request - a.request);
+    const keys = Object.values(keyMap).sort((a, b) => b.tokens - a.tokens || b.request - a.request);
+    const aggregate = { request: aggRequest, response: aggResponse, promptMiss: aggPromptMiss, promptHit: aggPromptHit, tokens: aggTokens };
+    const costMerged = mergeCostByCurrency(collected);
 
-    const cache = { fetchedAt: Date.now(), start, end, series };
-    // 仅在没有 abort 信号时写缓存；主动取消/超时不污染缓存
-    if (!signal || !signal.aborted) saveMonthRangeCache(cache);
-    return cache;
+    return {
+      period: start === end ? start : `${start}~${end}`,
+      start, end, months,
+      summary,
+      amount: { raw: null, models, keys, days: Object.values(dayByKey), aggregate },
+      cost: costMerged,
+      monthlySeries,
+      debug: {
+        auth: { tokenFound: state.tokenSource !== "none", tokenSource: state.tokenSource },
+        range: { start, end, monthCount: months.length, seriesCount: monthlySeries.length },
+      },
+    };
   }
 
   // 生成 start~end 的月份列表（含首尾），按月升序
@@ -2153,19 +2251,23 @@
     return months;
   }
 
-  function getSelectedPeriod() {
-    // 优先使用自定义月份下拉框
-    const customSelect = document.querySelector(".dsapi-plus-period-select");
-    if (customSelect && /^\d{4}-\d{1,2}$/.test(customSelect.value)) return customSelect.value;
-
-    const selects = Array.from(document.querySelectorAll("select"));
-    for (const select of selects) {
-      const value = select.value || select.selectedOptions?.[0]?.value || "";
-      if (/^\d{4}-\d{1,2}$/.test(value)) return value;
+  // 读取面板当前聚合区间（起/止月份）。优先取面板内的双下拉框，否则回退到默认窗口。
+  // 起 > 止时自动交换，保证区间合法。
+  function getSelectedRange() {
+    const startSel = document.querySelector(".dsapi-plus-range-start");
+    const endSel = document.querySelector(".dsapi-plus-range-end");
+    let start = (startSel && /^\d{4}-\d{1,2}$/.test(startSel.value)) ? startSel.value : "";
+    let end = (endSel && /^\d{4}-\d{1,2}$/.test(endSel.value)) ? endSel.value : "";
+    if (!start || !end) {
+      // [需求 4] 面板尚未渲染下拉框（含 SPA 路由重进、teardown 清空 state 后）时，
+      // 直接读取已持久化的区间；无记录或非法时由 loadRangeWindow 回退默认窗口。
+      const win = loadRangeWindow();
+      start = start || win.start;
+      end = end || win.end;
     }
-
-    const now = new Date();
-    return `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+    const toNum = (p) => { const { year, month } = parsePeriod(p); return year * 100 + month; };
+    if (toNum(start) > toNum(end)) { const t = start; start = end; end = t; }
+    return { start, end };
   }
 
   function normalizeSummary(raw) {
@@ -2414,53 +2516,14 @@
     return asArray(firstValue(item, ["usage", "usages", "amounts", "values", "data"]));
   }
 
-  function summarizeShape(value, depth = 0) {
-    const parsed = parseMaybeJson(value);
-    if (depth > 2) return "...";
-    if (Array.isArray(parsed)) {
-      return {
-        type: "array",
-        length: parsed.length,
-        first: parsed.length ? summarizeShape(parsed[0], depth + 1) : null,
-      };
-    }
-    if (!parsed || typeof parsed !== "object") return { type: typeof parsed };
-    const keys = Object.keys(parsed);
-    const result = { type: "object", keys: keys.slice(0, 20) };
-    for (const key of keys.slice(0, 6)) result[key] = summarizeShape(parsed[key], depth + 1);
-    return result;
-  }
-
-  function inspectAmountFields(raw) {
-    try {
-      const data = findUsageDataObject(raw) || {};
-      const totals = asArray(firstValue(data, ["total", "totals", "models", "model_usage", "modelUsage"]));
-      if (!totals.length) return { message: "totals 数组为空", totalItems: 0 };
-      const sampleItems = totals.slice(0, 3).map((item, idx) => ({
-        index: idx,
-        keys: Object.keys(item),
-        model: getModelName(item),
-        keyField: getKeyName(item),
-        hasUsage: !!getUsageList(item).length,
-        usageTypes: getUsageList(item).map((u) => firstValue(u, ["type", "usage_type", "usageType", "name", "key"])),
-      }));
-      return {
-        totalItems: totals.length,
-        sampleItems,
-        allKeysInFirst: Object.keys(totals[0]),
-        hasKeyField: totals.some((item) => !!getKeyName(item)),
-      };
-    } catch (e) {
-      return { error: e.message };
-    }
-  }
-
-  function renderSkeleton(panel, period) {
+  function renderSkeleton(panel, start, end) {
     // [修改] 原因：面板已渲染过时即使图表暂缺也走轻量更新，避免整面板重建销毁月份下拉
     if (state.charts.length > 0 || panel.dataset.rendered === "1") {
-      const periodSelect = panel.querySelector(".dsapi-plus-period-select");
+      const startSelect = panel.querySelector(".dsapi-plus-range-start");
+      const endSelect = panel.querySelector(".dsapi-plus-range-end");
+      if (startSelect) startSelect.value = start;
+      if (endSelect) endSelect.value = end;
       const status = panel.querySelector(".dsapi-plus-status");
-      if (periodSelect) periodSelect.value = period;
       if (status) status.textContent = "加载中...";
       const banner = panel.querySelector(".dsapi-plus-error-banner");
       if (banner) banner.remove();
@@ -2472,10 +2535,11 @@
       <div class="dsapi-plus-head">
         <div class="dsapi-plus-title">
           <strong>扩展用量</strong>
-          <select class="dsapi-plus-period-select">${buildPeriodOptions(period)}</select>
+          ${rangeSelectsHtml(start, end)}
+          <span class="dsapi-plus-status">加载中...</span>
         </div>
         <div class="dsapi-plus-actions">
-          <span class="dsapi-plus-status">加载中...</span>
+          <button type="button" class="dsapi-plus-clear-cache-btn">清除缓存</button>
         </div>
       </div>
       <div class="dsapi-plus-message">正在读取 DeepSeek 用量接口。</div>
@@ -2499,7 +2563,7 @@
     `;
   }
 
-  function renderError(panel, period, error) {
+  function renderError(panel, start, end, error) {
     const message = String(error?.message || error || "未知错误");
     const isAuth = /\b(401|403|40002)\b|missing token/i.test(message);
     panel.__dsapiPlusDebug = {
@@ -2509,9 +2573,11 @@
 
     // [修改] 原因：面板已渲染过时走增量错误提示，避免整面板重建销毁月份下拉
     if (state.charts.length > 0 || panel.dataset.rendered === "1") {
-      const periodSelect = panel.querySelector(".dsapi-plus-period-select");
+      const startSelect = panel.querySelector(".dsapi-plus-range-start");
+      const endSelect = panel.querySelector(".dsapi-plus-range-end");
+      if (startSelect) startSelect.value = start;
+      if (endSelect) endSelect.value = end;
       const status = panel.querySelector(".dsapi-plus-status");
-      if (periodSelect) periodSelect.value = period;
       if (status) status.textContent = "加载失败";
       const existing = panel.querySelector(".dsapi-plus-error-banner");
       if (existing) existing.remove();
@@ -2527,31 +2593,15 @@
       <div class="dsapi-plus-head">
         <div class="dsapi-plus-title">
           <strong>扩展用量</strong>
-          <select class="dsapi-plus-period-select">${buildPeriodOptions(period)}</select>
+          ${rangeSelectsHtml(start, end)}
         </div>
         <div class="dsapi-plus-actions">
-          <span class="dsapi-plus-status">加载失败</span>
+          <button type="button" class="dsapi-plus-clear-cache-btn">清除缓存</button>
         </div>
       </div>
       ${errorBannerHTML(message, isAuth)}
     `;
     bindRefresh(panel);
-  }
-
-  function buildPeriodOptions(selectedPeriod) {
-    const now = new Date();
-    const currentMonth = now.getUTCMonth() + 1;
-    const currentYear = now.getUTCFullYear();
-    let html = "";
-    for (let i = 0; i < 12; i++) {
-      let m = currentMonth - i;
-      let y = currentYear;
-      if (m <= 0) { m += 12; y -= 1; }
-      const val = `${y}-${m}`;
-      const label = `${y}年${m}月${i === 0 ? " (当前)" : ""}`;
-      html += `<option value="${val}"${val === selectedPeriod ? " selected" : ""}>${label}</option>`;
-    }
-    return html;
   }
 
   // ========== 订阅功能：数据管理 ==========
@@ -2587,7 +2637,6 @@
       picgoApiKey: "",
       contentOptions: {
         summary: true,
-        tokenComposition: true,
         todayDetail: true,
         monthDetail: true,
         topKeys: 10,
@@ -2600,10 +2649,12 @@
 
   // ========== 订阅功能：报告生成 ==========
 
-  function buildSubscriptionReportData(sub) {
-    const panelData = state.lastPanelData;
+  function buildSubscriptionReportData(sub, overrideData) {
+    const panelData = overrideData || state.lastPanelData;
     if (!panelData) return null;
-    const { summary, period, amount, cost } = panelData;
+    // [修复] 原因：区间重构后解构仍是旧字段 period，而下方 month 标签引用 start/end，
+    // 抛 ReferenceError: start is not defined，导致预览无响应、发送卡在「发送中」
+    const { summary, start, end, amount, cost } = panelData;
 
     // CNY 月度总费用
     const monthCnyCost = sumCurrencyAmount(cost, "CNY", "amount");
@@ -2630,14 +2681,15 @@
     }
 
     // 今日费用 — 复用 buildPanelData 逻辑
+    // [修复] 原因：区间聚合后 days 日期为完整 YYYY-MM-DD，跨月区间下旧的正则（仅匹配日号）
+    // 会把其他月份同日号误判为「今天」，改为精确匹配完整日期
     const now = new Date();
-    const todayDay = now.getUTCDate();
+    const todayDate = now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-" + String(now.getUTCDate()).padStart(2, "0");
     let todayTotalCost = 0;
     for (const costBlock of cost) {
       if (costBlock.currency !== "CNY") continue;
       for (const dayCost of (costBlock.days || [])) {
-        const match = String(dayCost.date || "").match(/(\d{1,2})$/);
-        if (match && Number(match[1]) === todayDay) {
+        if (String(dayCost.date || "") === todayDate) {
           todayTotalCost += (dayCost.amount || 0);
         }
       }
@@ -2646,8 +2698,7 @@
     if (!todayTotalCost && totalCost > 0 && totalUsage > 0) {
       const avgPerToken = totalCost / totalUsage;
       for (const day of (amount.days || [])) {
-        const match = String(day.date || "").match(/(\d{1,2})$/);
-        if (match && Number(match[1]) === todayDay && day.tokens > 0) {
+        if (String(day.date || "") === todayDate && day.tokens > 0) {
           todayTotalCost = avgPerToken * day.tokens;
           break;
         }
@@ -2720,7 +2771,7 @@
     var dailyData = state.keyDetailDailyData;
     if (dailyData && dailyData.dates && dailyData.series) {
       var dates = dailyData.dates;
-      var todayDate = now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-" + String(now.getUTCDate()).padStart(2, "0");
+      // 复用上方已声明的 todayDate（YYYY-MM-DD，本次重构统一为完整日期匹配）
       var todayIdx = -1;
       for (var di = 0; di < dates.length; di++) {
         if (String(dates[di]).indexOf(todayDate) === 0) { todayIdx = di; break; }
@@ -2791,11 +2842,9 @@
     }
 
     return {
-      month: period || (now.getUTCFullYear() + "-" + (now.getUTCMonth() + 1)),
+      month: (start && end) ? (start === end ? start : `${start} ~ ${end}`) : (now.getUTCFullYear() + "-" + (now.getUTCMonth() + 1)),
       generatedAt: new Date(now.getTime() + 8 * 3600000).toISOString().replace("T", " ").substring(0, 19) + " (北京时间)",
       summary: { totalCost: totalCost, totalUsage: totalUsage, todayCost: todayTotalCost, avgCost: avgCost, balance: walletCnyBalance, cacheHitRate: overallCacheHitRate },
-      tokenComposition: { inputMiss: inputMiss, inputHit: inputHit, output: output },
-      costComposition: { costMiss: costMiss, costHit: costHit, costOut: costOut },
       todayKeys: todayKeys,
       monthKeys: monthKeys,
     };
@@ -2813,59 +2862,31 @@
       lines.push("| 当日费用 | 当月费用 | 钱包余额 |");
       lines.push("|---------|---------|---------|");
       lines.push("| " + formatCnyAmount(sumData.todayCost) + " | " + formatCnyAmount(sumData.totalCost) + " | " + formatCnyAmount(sumData.balance) + " |");
-      if (data.costComposition) {
-        var cc = data.costComposition;
-        lines.push("| 未缓存费用 | 缓存命中费用 | 输出费用 |");
-        lines.push("|-----------|-------------|---------|");
-        lines.push("| " + formatCnyAmount(cc.costMiss) + " | " + formatCnyAmount(cc.costHit) + " | " + formatCnyAmount(cc.costOut) + " |");
-      }
       lines.push("");
-    }
-
-    if (sub.contentOptions.tokenComposition) {
-      var tc = data.tokenComposition;
-      var totalTokens = tc.inputMiss + tc.inputHit + tc.output;
-      lines.push("## 📈 Token 构成");
-      if (totalTokens > 0) {
-        var missPct = (tc.inputMiss / totalTokens * 100).toFixed(1);
-        var hitPct = (tc.inputHit / totalTokens * 100).toFixed(1);
-        var outPct = (tc.output / totalTokens * 100).toFixed(1);
-        var cr = data.summary.cacheHitRate.toFixed(1);
-        lines.push("| 类型 | 数量 | 命中率 |");
-        lines.push("|------|------|--------|");
-        lines.push("| 输入未缓存 | " + formatInteger(tc.inputMiss) + " | — |");
-        lines.push("| 缓存命中 | " + formatInteger(tc.inputHit) + " | " + hitPct + "% |");
-        lines.push("| 输出 | " + formatInteger(tc.output) + " | — |");
-        lines.push("| 总计 | " + formatInteger(totalTokens) + " | " + cr + "% |");
-        lines.push("");
-      } else {
-        lines.push("- 暂无 Token 数据\n");
-      }
     }
 
     if (sub.contentOptions.todayDetail && data.todayKeys) {
       lines.push("## 🔑 当日 Key 明细 (Top " + Math.min(data.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ")");
-      lines.push("| Key | 总Token | 缓存命中率 | 今日费用 |");
-      lines.push("|-----|---------|------------|----------|");
+      lines.push("| Key | 总Token | 今日费用 |");
+      lines.push("|-----|---------|----------|");
       if (data.todayKeys.length) {
         for (var _ki = 0; _ki < data.todayKeys.length; _ki++) {
           var tk = data.todayKeys[_ki];
-          var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
-          lines.push("| " + (tk.key || "未知") + " | " + formatInteger(tk.totalTokens) + " | " + crStr + " | " + formatCnyAmount(tk.todayCost) + " |");
+          lines.push("| " + (tk.key || "未知") + " | " + formatInteger(tk.totalTokens) + " | " + formatCnyAmount(tk.todayCost) + " |");
         }
       } else {
-        lines.push("| — | — | — | — |");
+        lines.push("| — | — | — |");
       }
       lines.push("");
     }
 
     if (sub.contentOptions.monthDetail && data.monthKeys && data.monthKeys.length) {
       lines.push("## 🔑 Key 月度总明细 (Top " + data.monthKeys.length + ")");
-      lines.push("| Key | 总Token数 | 缓存命中率 | 总费用 |");
-      lines.push("|-----|-----------|------------|--------|");
+      lines.push("| Key | 总Token数 | 总费用 |");
+      lines.push("|-----|-----------|--------|");
       for (var _kj = 0; _kj < data.monthKeys.length; _kj++) {
         var item = data.monthKeys[_kj];
-        lines.push("| " + (item.key || "未知") + " | " + formatInteger(item.totalTokens) + " | " + (item.cacheHitRate ? item.cacheHitRate.toFixed(1) + "%" : "-") + " | " + formatCnyAmount(item.totalCost) + " |");
+        lines.push("| " + (item.key || "未知") + " | " + formatInteger(item.totalTokens) + " | " + formatCnyAmount(item.totalCost) + " |");
       }
       lines.push("");
     }
@@ -2877,8 +2898,19 @@
 
   // ========== 订阅功能：发送 ==========
 
-  async function sendSubscriptionReport(sub, showPreview) {
-    const reportData = buildSubscriptionReportData(sub);
+  async function sendSubscriptionReport(sub, showPreview, overrideData) {
+    // [修复] 原因：内部任何异常（如数据构建报错）原样抛出会让「立即发送」按钮永远停在「发送中」，
+    // 改为捕获后返回失败结果，由调用方展示诊断信息
+    try {
+      return await _sendSubscriptionReportInner(sub, showPreview, overrideData);
+    } catch (err) {
+      console.error("[DeepSeek Usage Panel Plus] 发送订阅报告异常:", err);
+      return { success: false, error: (err && err.message) ? err.message : String(err) };
+    }
+  }
+
+  async function _sendSubscriptionReportInner(sub, showPreview, overrideData) {
+    const reportData = buildSubscriptionReportData(sub, overrideData);
     if (!reportData) return { success: false, error: "暂无数据，请先刷新数据" };
 
     let markdown;
@@ -3119,7 +3151,7 @@
 
   async function captureReportScreenshot(sub, reportData) {
     const div = document.createElement("div");
-    div.style.cssText = "position: absolute; left: -9999px; top: 0; width: 680px; padding: 24px; background: #fff; color: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;";
+    div.style.cssText = "position: absolute; left: -9999px; top: 0; width: 420px; padding: 20px 16px; background: #fff; color: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;";
 
     // 构建报告 HTML（与 Markdown 内容对应）
     let html = `<h1 style="font-size: 20px; margin: 0 0 4px;">📊 DeepSeek 用量报告</h1>`;
@@ -3129,41 +3161,20 @@
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">💰 费用摘要</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px;">';
       html += '<tr>' + summaryCell("当日费用", formatCnyAmount(reportData.summary.todayCost)) + summaryCell("当月费用", formatCnyAmount(reportData.summary.totalCost)) + summaryCell("钱包余额", formatCnyAmount(reportData.summary.balance)) + '</tr>';
-      if (reportData.costComposition) {
-        html += '<tr>' + summaryCell("未缓存费用", formatCnyAmount(reportData.costComposition.costMiss)) + summaryCell("缓存命中费用", formatCnyAmount(reportData.costComposition.costHit)) + summaryCell("输出费用", formatCnyAmount(reportData.costComposition.costOut)) + '</tr>';
-      }
-      html += '</table>';
-    }
-
-    if (sub.contentOptions.tokenComposition) {
-      var scr_total = reportData.tokenComposition.inputMiss + reportData.tokenComposition.inputHit + reportData.tokenComposition.output;
-      html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">📈 Token 构成</h2>';
-      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">类型</th><th style="padding:6px 8px; text-align:right;">数量</th><th style="padding:6px 8px; text-align:right;">命中率</th></tr>';
-      if (scr_total > 0) {
-        var missPct2 = (reportData.tokenComposition.inputMiss / scr_total * 100).toFixed(1);
-        var hitPct2 = (reportData.tokenComposition.inputHit / scr_total * 100).toFixed(1);
-        var outPct2 = (reportData.tokenComposition.output / scr_total * 100).toFixed(1);
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">输入未缓存</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(reportData.tokenComposition.inputMiss) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">—</td></tr>';
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">缓存命中</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(reportData.tokenComposition.inputHit) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + hitPct2 + '%</td></tr>';
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">输出</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(reportData.tokenComposition.output) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">—</td></tr>';
-        html += '<tr style="font-weight:600;"><td style="padding:4px 8px; border-top:1px solid #eee;">总计</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(scr_total) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + reportData.summary.cacheHitRate.toFixed(1) + '%</td></tr>';
-      }
       html += '</table>';
     }
 
     if (sub.contentOptions.todayDetail && reportData.todayKeys) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 当日 Key 明细 (Top ' + Math.min(reportData.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ')</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
       if (reportData.todayKeys.length) {
         for (var _kt = 0; _kt < reportData.todayKeys.length; _kt++) {
           var tk = reportData.todayKeys[_kt];
-          var crStr = tk.cacheHitRate && tk.cacheHitRate > 0 ? tk.cacheHitRate.toFixed(1) + "%" : "-";
-          html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(tk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(tk.todayCost) + '</td></tr>';
+          html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(tk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(tk.todayCost) + '</td></tr>';
         }
       } else {
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee; text-align:center;" colspan="4">今日暂无数据</td></tr>';
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee; text-align:center;" colspan="3">今日暂无数据</td></tr>';
       }
       html += '</table>';
     }
@@ -3171,11 +3182,10 @@
     if (sub.contentOptions.monthDetail && reportData.monthKeys && reportData.monthKeys.length) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 Key 月度总明细 (Top ' + reportData.monthKeys.length + ')</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">缓存命中率</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
+      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
       for (var _km = 0; _km < reportData.monthKeys.length; _km++) {
         var mk = reportData.monthKeys[_km];
-        var crStr = mk.cacheHitRate ? mk.cacheHitRate.toFixed(1) + "%" : "-";
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(mk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + crStr + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(mk.totalCost) + '</td></tr>';
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(mk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(mk.totalCost) + '</td></tr>';
       }
       html += '</table>';
     }
@@ -3649,7 +3659,6 @@
         <div class="dsapi-plus-subscribe-checkbox-group">`;
     const contentChecks = [
       ["summary", "费用摘要"],
-      ["tokenComposition", "Token构成"],
       ["todayDetail", "当日明细"],
       ["monthDetail", "月度明细"],
     ];
@@ -3773,7 +3782,15 @@
         var idx = parseInt(previewBtn.dataset.index, 10);
         var sub = state.subscriptions[idx];
         if (!sub) return;
-        var reportData = buildSubscriptionReportData(sub);
+        // [修复] 原因：构建报告数据抛异常时预览按钮无任何响应，改为捕获并提示
+        var reportData;
+        try {
+          reportData = buildSubscriptionReportData(sub);
+        } catch (err) {
+          console.error("[DeepSeek Usage Panel Plus] 生成预览失败:", err);
+          alert("生成预览失败：" + ((err && err.message) ? err.message : String(err)));
+          return;
+        }
         if (!reportData) { alert("暂无数据，请先刷新数据"); return; }
         previewBtn.disabled = true;
         previewBtn.textContent = "生成中…";
@@ -3972,7 +3989,6 @@
       scheduleDayOfMonth: stype === "monthly" ? (parseInt(getName("#sub-form-monthday"), 10) || 1) : 1,
       contentOptions: {
         summary: contentOpts.summary !== false,
-        tokenComposition: contentOpts.tokenComposition !== false,
         todayDetail: contentOpts.todayDetail !== false,
         monthDetail: contentOpts.monthDetail !== false,
         topKeys: Math.max(1, parseInt(getName("#sub-form-top-keys"), 10) || 10),
@@ -4196,11 +4212,27 @@
       const lastSent = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
       if (shouldSendNow(sub, now, lastSent)) {
         console.log("[DeepSeek Usage Panel Plus] 订阅检查触发:", sub.name, "时间:", now.toLocaleTimeString());
-        // 发送前先刷新数据 Key 明细数据
-        try {
-          await fetchKeyDetailFromExport(getSelectedPeriod());
-        } catch (e) { /* 刷新数据失败不影响发送，使用已有数据 */ }
-        sendSubscriptionReport(sub).then(result => {
+        // 需求 4：面板展示区间不是当天（区间终点 != 当前月）时，发送前主动拉取今日最新数据覆盖，
+        // 确保订阅报告始终基于今天实际用量；面板即当天时仅刷新 Key 明细保证最新。
+        let reportOverride = null;
+        const panelData = state.lastPanelData;
+        const panelIsToday = !!(panelData && panelData.isCurrentPeriod);
+        if (!panelIsToday) {
+          try {
+            const cur = currentMonthPeriod();
+            reportOverride = await loadRange(cur, cur, null);
+            await fetchKeyDetailFromExport(cur);
+          } catch (e) {
+            console.warn("[DeepSeek Usage Panel Plus] 订阅发送前拉取今日数据失败，回退到面板数据", e);
+          }
+        } else {
+          // 面板已含当前月：按面板区间整段刷新 Key 明细（历史月走缓存，仅当前月按 TTL 可能重拉）
+          try {
+            const rg = getSelectedRange();
+            await fetchKeyDetailFromExport(rg.start, rg.end);
+          } catch (e) { /* 刷新失败不影响发送 */ }
+        }
+        sendSubscriptionReport(sub, undefined, reportOverride).then(result => {
           if (result.success) {
             sub.lastSentAt = new Date().toISOString();
             sub.lastSentStatus = "success";
@@ -4249,23 +4281,18 @@
     }
   }
 
+  // 由 loadRange 的聚合结果构建面板渲染数据。整个面板按「起止区间」聚合：
+  // 汇总卡改为区间口径（区间累计费用/月均/最高消费月/区间累计Token/钱包余额），
+  // 模型分布/Key费用/每日明细均由聚合后的 amount/cost 直接消费，monthlySeries 驱动月度趋势图。
   function buildPanelData(data) {
-    const { period, summary, amount, cost } = data;
+    const { period, summary, amount, cost, monthlySeries, start, end, months } = data;
 
-    const monthlyCostText = summary.monthlyCosts.length
-      ? summary.monthlyCosts.map(formatMoney).join(" + ")
-      : "0";
-    const monthCostText = cost.length ? cost.map(formatMoney).join(" + ") : "0";
     const sortedModels = amount.models.slice().sort((a, b) => b.tokens - a.tokens || b.request - a.request);
     const sortedKeys = amount.keys.length
       ? amount.keys.slice().sort((a, b) => b.tokens - a.tokens || b.request - a.request)
       : [];
     const tokenTotal = amount.aggregate.tokens;
-    // [修改] 原因：get_user_summary 接口已不返回 monthlyUsage 字段，导致当月用量恒为 0；
-    // 当月用量优先使用带月份参数的 amount 接口月度聚合值，summary.monthlyUsage 仅作兜底
-    const monthlyUsageDisplay = tokenTotal || summary.monthlyUsage;
-    const monthCnyCost = sumCurrencyAmount(cost, "CNY", "amount");
-    const monthlyCnyCost = sumCurrencyAmount(summary.monthlyCosts, "CNY", "amount");
+    const monthCnyCost = sumCurrencyAmount(cost, "CNY", "amount"); // 区间累计费用（CNY）
     const cnyCostBreakdown = getCostBreakdown(cost, "CNY");
     const walletCnyBalance =
       sumCurrencyAmount(summary.normalWallets, "CNY", "balance") +
@@ -4273,105 +4300,50 @@
     const averageCostPerMillion = computeAverageCostPerMillion({
       preferredCost: monthCnyCost,
       preferredTokens: tokenTotal,
-      fallbackCost: monthlyCnyCost,
-      fallbackTokens: Number(summary.monthlyUsage || 0),
+      fallbackCost: 0,
+      fallbackTokens: 0,
     });
-    // 区分数据来源：选中月 vs 本月（备选）
-    const isUsingPreferred = monthCnyCost > 0 && tokenTotal > 0;
-    const _now = new Date();
-    const nowPeriod = `${_now.getUTCFullYear()}-${_now.getUTCMonth() + 1}`;
-    const averageCostLabel = isUsingPreferred
-      ? (period === nowPeriod ? "本月平均消费" : "选中月平均消费")
-      : "本月平均消费（备选）";
-    const isCurrentPeriod = period === nowPeriod;
     const averageInputCostPerMillion = computeAverageCostPerMillion({
       preferredCost: cnyCostBreakdown.input,
       preferredTokens: amount.aggregate.promptMiss + amount.aggregate.promptHit,
-      fallbackCost: monthCnyCost || monthlyCnyCost,
-      fallbackTokens: tokenTotal || Number(summary.monthlyUsage || 0),
+      fallbackCost: 0,
+      fallbackTokens: 0,
     });
     const averageOutputCostPerMillion = computeAverageCostPerMillion({
       preferredCost: cnyCostBreakdown.output,
       preferredTokens: amount.aggregate.response,
-      fallbackCost: monthCnyCost || monthlyCnyCost,
-      fallbackTokens: tokenTotal || Number(summary.monthlyUsage || 0),
+      fallbackCost: 0,
+      fallbackTokens: 0,
     });
     const averageCostDetail = `输入 ${formatCnyAmount(averageInputCostPerMillion)} /1M · 输出 ${formatCnyAmount(averageOutputCostPerMillion)} /1M`;
 
-    const daysArr = amount.days;
-    const now = new Date();
-    const todayDay = now.getUTCDate();
-    let today = null;
-    for (const day of daysArr) {
-      const match = String(day.date || "").match(/(\d{1,2})$/);
-      if (match && Number(match[1]) === todayDay) {
-        today = day;
-        break;
-      }
+    // 区间汇总卡：月均按窗口内实际月份数计算
+    const monthCount = (months && months.length) || (monthlySeries && monthlySeries.length) || 1;
+    const rangeCostTotal = monthCnyCost;
+    const rangeAvgCost = monthCount > 0 ? rangeCostTotal / monthCount : 0;
+    let rangePeakCost = 0, rangePeakPeriod = "";
+    for (const item of (monthlySeries || [])) {
+      if ((item.costCNY || 0) > rangePeakCost) { rangePeakCost = item.costCNY || 0; rangePeakPeriod = item.period; }
     }
-    if (!today) {
-      for (let i = daysArr.length - 1; i >= 0; i--) {
-        if (daysArr[i].tokens > 0 || daysArr[i].request > 0) {
-          today = daysArr[i];
-          break;
-        }
-      }
-      if (!today) today = daysArr.length ? daysArr[daysArr.length - 1] : null;
-    }
-    // 从 cost API 每日数据中获取今天的实际消费金额
-    let todayActualCost = 0;
-    for (const costBlock of cost) {
-      if (costBlock.currency !== "CNY") continue;
-      for (const dayCost of (costBlock.days || [])) {
-        const match = String(dayCost.date || "").match(/(\d{1,2})$/);
-        if (match && Number(match[1]) === todayDay) {
-          todayActualCost += (dayCost.amount || 0);
-        }
-      }
-    }
-
-    const todayInputTokens = today ? (today.promptMiss || 0) + (today.promptHit || 0) : 0;
-    const todayOutputTokens = today ? (today.response || 0) : 0;
-    // 先用均价估算作为基准
-    const todayInputCostEstimated = averageInputCostPerMillion > 0 ? averageInputCostPerMillion * todayInputTokens / 1000000 : 0;
-    const todayOutputCostEstimated = averageOutputCostPerMillion > 0 ? averageOutputCostPerMillion * todayOutputTokens / 1000000 : 0;
-    const todayTotalCostEstimated = todayInputCostEstimated + todayOutputCostEstimated;
-
-    // 优先使用 cost API 的实际每日数据，估算值作为 fallback
-    let todayTotalCost, todayInputCost, todayOutputCost;
-    if (todayActualCost > 0) {
-      todayTotalCost = todayActualCost;
-      // 按实际总额等比缩放输入/输出估算值以保持细分一致
-      if (todayTotalCostEstimated > 0) {
-        const scale = todayActualCost / todayTotalCostEstimated;
-        todayInputCost = todayInputCostEstimated * scale;
-        todayOutputCost = todayOutputCostEstimated * scale;
-      } else {
-        todayInputCost = 0;
-        todayOutputCost = 0;
-      }
-    } else {
-      todayTotalCost = todayTotalCostEstimated;
-      todayInputCost = todayInputCostEstimated;
-      todayOutputCost = todayOutputCostEstimated;
-    }
-
-    const todayCostText = formatCnyAmount(todayTotalCost);
-    const todayCostDetail = `输入 ${formatCnyAmount(todayInputCost)} · 输出 ${formatCnyAmount(todayOutputCost)}`;
-    const costDetail = `输入 ${formatCnyAmount(cnyCostBreakdown.input)} · 输出 ${formatCnyAmount(cnyCostBreakdown.output)}`;
+    const rangeTokenTotal = tokenTotal;
     const usageInput = amount.aggregate.promptMiss + amount.aggregate.promptHit;
     const usageDetail = `输入 ${formatInteger(usageInput)} tokens · 输出 ${formatInteger(amount.aggregate.response)} tokens`;
+
+    const now = new Date();
+    const nowPeriod = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+    const isCurrentPeriod = end === nowPeriod; // 区间包含当前月（订阅「补拉今日数据」判断使用）
 
     const updateTime = new Date().toLocaleTimeString("zh-CN");
 
     // 条形图高度：每横条 = 表格行高 36px + grid上下边距 40px
     const keyChartHeight = sortedKeys.length ? Math.max(100, sortedKeys.length * 36 + 40) : 160;
+    const monthRangeLabel = `${start} ~ ${end}（${monthCount} 个月）`;
 
     const html = `
       <div class="dsapi-plus-head">
         <div class="dsapi-plus-title">
           <strong>扩展用量</strong>
-          <select class="dsapi-plus-period-select">${buildPeriodOptions(period)}</select>
+          ${rangeSelectsHtml(start, end)}
           <span class="dsapi-plus-status">已更新 ${escapeHtml(updateTime)}</span>
         </div>
         <div class="dsapi-plus-actions">
@@ -4407,14 +4379,10 @@
               <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.models ? ' active' : ''}" data-section="models">模型用量</button>
               <button type="button" class="dsapi-plus-toggle-section-btn${state.keyDetailVisible ? ' active' : ''}" data-section="keyDetail">Key明细</button>
               <button type="button" class="dsapi-plus-toggle-section-btn${state.dailyDetailVisible ? ' active' : ''}" data-section="dailyDetail">每日明细</button>
-              <button type="button" class="dsapi-plus-toggle-section-btn${state.monthlySummaryVisible ? ' active' : ''}" data-section="monthSummary">月度统计</button>
+              <button type="button" class="dsapi-plus-toggle-section-btn${state.sectionVisible.monthTrend ? ' active' : ''}" data-section="monthTrend">月度趋势</button>
             </div>
           </div>
-          ${summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "")}
-          ${summaryItem("当月费用", monthCostText, "", costDetail)}
-          ${summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail)}
-          ${summaryItem("当月用量", formatInteger(monthlyUsageDisplay), "Tokens", usageDetail)}
-          ${summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "")}
+          ${summaryItemsHtml({ rangeCostTotal, rangeAvgCost, rangeTokenTotal, monthRangeLabel, rangePeakCost, rangePeakPeriod, averageCostPerMillion, averageCostDetail, walletCnyBalance })}
         </div>
 
         <div class="dsapi-plus-section" style="display:${state.sectionVisible.models ? '' : 'none'};">
@@ -4426,13 +4394,13 @@
               ${
                 sortedModels.length
                   ? renderModelTable(sortedModels, cost)
-                  : '<div class="dsapi-plus-message">当前月份暂无请求或 Token 用量。</div>'
+                  : '<div class="dsapi-plus-message">当前区间暂无请求或 Token 用量。</div>'
               }
             </div>
             <div class="dsapi-plus-model-donut">
               ${chartHeading("模型分布", sortedModels.length ? `${sortedModels.length} 个活跃模型` : "暂无模型用量")}
               <div class="dsapi-plus-chart-frame">
-                ${sortedModels.length ? '<div class="dsapi-plus-chart" data-dsapi-chart="models"></div>' : '<div class="dsapi-plus-message">当前月份暂无模型用量。</div>'}
+                ${sortedModels.length ? '<div class="dsapi-plus-chart" data-dsapi-chart="models"></div>' : '<div class="dsapi-plus-message">当前区间暂无模型用量。</div>'}
               </div>
             </div>
           </div>
@@ -4458,7 +4426,7 @@
               <button type="button" class="dsapi-plus-cost-chart-btn${state.keyDetailChartVisible ? ' active' : ''}">费用分布</button>
             </div>
           </div>
-          ${sortedKeys.length ? renderKeyTable(sortedKeys, cost, state.keyTableVisible) : '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
+          ${sortedKeys.length ? renderKeyTable(sortedKeys, cost, state.keyTableVisible) : '<div class="dsapi-plus-message">当前区间暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>'}
           <div class="dsapi-plus-key-chart" style="display:${state.keyDetailChartVisible !== false ? '' : 'none'};margin-top:8px;">
             ${chartHeading("Key 费用分布", "")}
             <div class="dsapi-plus-chart-frame" style="height:${keyChartHeight}px;">
@@ -4483,20 +4451,11 @@
           </div>
         </div>
 
-        <div class="dsapi-plus-section dsapi-plus-month-summary-section" data-section="monthSummary" style="display:${state.monthlySummaryVisible ? '' : 'none'};">
-          <div class="dsapi-plus-section-head">
-            <div class="dsapi-plus-section-title">📊 月度统计</div>
-            <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-              <label style="font-size:12px;color:var(--dsapi-plus-muted);display:inline-flex;align-items:center;gap:4px;">起
-                <select class="dsapi-plus-month-range-start dsapi-plus-period-select" style="height:28px;min-width:88px;">${buildMonthRangeOptionsHtml(state.monthRangeStart)}</select>
-              </label>
-              <label style="font-size:12px;color:var(--dsapi-plus-muted);display:inline-flex;align-items:center;gap:4px;">止
-                <select class="dsapi-plus-month-range-end dsapi-plus-period-select" style="height:28px;min-width:88px;">${buildMonthRangeOptionsHtml(state.monthRangeEnd)}</select>
-              </label>
-              <button type="button" class="dsapi-plus-month-summary-refresh-btn">刷新</button>
-            </div>
+        <div class="dsapi-plus-section" data-section="monthTrend" style="margin-top:8px;display:${state.sectionVisible.monthTrend ? '' : 'none'};">
+          ${chartHeading("月度费用与 Token 趋势", monthRangeLabel)}
+          <div class="dsapi-plus-chart-frame" style="height:260px;">
+            <div class="dsapi-plus-chart" style="width:100%;height:260px;" data-dsapi-chart="monthTrend"></div>
           </div>
-          <div class="dsapi-plus-month-summary-content"></div>
         </div>
       </div>
     `;
@@ -4506,20 +4465,25 @@
       summary,
       amount,
       cost,
-      monthlyCostText,
-      monthCostText,
-      todayCostText,
-      todayCostDetail,
-      costDetail,
-      usageDetail,
+      monthlySeries,
+      start,
+      end,
+      months,
       sortedModels,
       sortedKeys,
       tokenTotal,
       isCurrentPeriod,
-      averageCostLabel,
       averageCostPerMillion,
       averageCostDetail,
+      usageDetail,
       walletCnyBalance,
+      rangeCostTotal,
+      rangeAvgCost,
+      rangePeakCost,
+      rangePeakPeriod,
+      rangeTokenTotal,
+      monthRangeLabel,
+      keyChartHeight,
       updateTime,
       html,
     };
@@ -4548,8 +4512,6 @@
     requestAnimationFrame(() => { panel.style.pointerEvents = ""; });
     bindRefresh(panel);
     initCharts(panel, panelData);
-    // 恢复记忆的月度统计区块（若开关开启），懒加载跨月数据
-    if (state.monthlySummaryVisible) loadMonthSummarySection(panel, false);
     // 恢复记忆的 Key 明细数据
     restoreKeyDetailData(panel);
     // 初始化订阅管理内嵌面板
@@ -4568,13 +4530,17 @@
     }
     // 全量重渲染后恢复原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
-    // 异步刷新数据 Key 明细（使用当前选中月份）
-    fetchKeyDetailFromExport(getSelectedPeriod()).catch(function () {});
+    // 异步刷新 Key 明细（[需求 1] 跟随面板完整区间；历史月命中导出缓存，仅当前月按 TTL 可能重拉 ZIP）
+    const rg0 = getSelectedRange();
+    fetchKeyDetailFromExport(rg0.start, rg0.end).catch(function () {});
   }
 
   function restoreKeyDetailData(panel) {
     const saved = loadKeyDetailData();
     if (!saved || !saved.data || !saved.data.length) return;
+    // [需求 1] 持久化的 Key 明细缓存带区间标识：区间不一致时丢弃，避免把旧区间的明细当成当前区间展示
+    const currentRange = state.rangeStart && state.rangeEnd ? `${state.rangeStart}~${state.rangeEnd}` : "";
+    if (saved.range && currentRange && saved.range !== currentRange) return;
     // 兼容旧数据：补充 byModel 中缺失的费用、model 名称等
     for (const item of saved.data) {
       if (item.byModel) {
@@ -4618,6 +4584,20 @@
         ${detail ? `<div class="dsapi-plus-summary-detail">${escapeHtml(detail)}</div>` : ""}
       </div>
     `;
+  }
+
+  // 组装费用摘要卡片组：区间口径 4 卡 + 钱包余额（固定 5 卡）
+  // 参数: d —— 含 rangeCostTotal / rangeAvgCost / rangeTokenTotal / monthRangeLabel / rangePeakCost /
+  //              rangePeakPeriod / averageCostPerMillion / averageCostDetail / walletCnyBalance 的对象
+  // 返回: string，summaryItem 拼接结果
+  function summaryItemsHtml(d) {
+    return [
+      summaryItem("区间累计费用", formatCnyAmount(d.rangeCostTotal), "", `月均 ${formatCnyAmount(d.rangeAvgCost)}`),
+      summaryItem("区间累计 Token", formatInteger(d.rangeTokenTotal), "Tokens", d.monthRangeLabel),
+      summaryItem("最高消费月", formatCnyAmount(d.rangePeakCost), "", d.rangePeakPeriod ? `${d.rangePeakPeriod} 月` : ""),
+      summaryItem("平均费用", formatCnyAmount(d.averageCostPerMillion), "/1M", d.averageCostDetail),
+      summaryItem("钱包余额", formatCnyAmount(d.walletCnyBalance), "CNY", ""),
+    ].join("");
   }
 
   function sumCurrencyAmount(items, currency, amountKey) {
@@ -4863,13 +4843,13 @@
   }
 
   function buildChartOption(key, panelData) {
-    const { amount, sortedModels } = panelData;
+    const { amount, sortedModels, monthlySeries } = panelData;
     switch (key) {
       case "models": return buildModelsChartOption(sortedModels.slice(0, 8));
       case "keyCost": return buildKeyCostChartOption();
       case "keyDaily": return buildKeyDailyChartOption();
       case "dailyTotal": return buildDailyTotalChartOption(panelData);
-      case "monthTrend": return state.monthRangeCache ? buildMonthTrendChartOption(state.monthRangeCache.series) : null;
+      case "monthTrend": return (monthlySeries && monthlySeries.length) ? buildMonthTrendChartOption(monthlySeries) : null;
       default: return null;
     }
   }
@@ -4920,31 +4900,27 @@
   }
 
   function updatePanelIncremental(panel, panelData) {
-    const { period, amount, summary, cost, monthlyCostText, monthCostText, todayCostText, todayCostDetail, costDetail, usageDetail, sortedModels, sortedKeys, tokenTotal, isCurrentPeriod, averageCostLabel, averageCostPerMillion, averageCostDetail, walletCnyBalance, updateTime } = panelData;
-    // [修改] 原因：与全量渲染保持一致，当月用量优先使用 amount 月度聚合值，避免恒为 0
-    const monthlyUsageDisplay = tokenTotal || summary.monthlyUsage;
+    // [修复] 原因：解构漏掉 sortedModels/sortedKeys 导致 updatePanelIncremental 抛 ReferenceError，面板渲染中断
+    const { start, end, amount, summary, cost, sortedModels, sortedKeys, walletCnyBalance, usageDetail, updateTime } = panelData;
 
-    const periodSelect = panel.querySelector(".dsapi-plus-period-select");
+    // 同步起/止双下拉框选中值（不再有单一 period 下拉）
+    const startSelect = panel.querySelector(".dsapi-plus-range-start");
+    const endSelect = panel.querySelector(".dsapi-plus-range-end");
+    if (startSelect) startSelect.value = start;
+    if (endSelect) endSelect.value = end;
     const status = panel.querySelector(".dsapi-plus-status");
-    if (periodSelect) periodSelect.value = period;
     if (status) status.textContent = `已更新 ${escapeHtml(updateTime)}`;
 
     const summaryEl = panel.querySelector(".dsapi-plus-summary");
     if (summaryEl) {
-      const itemsHtml =
-        summaryItem("当日费用", isCurrentPeriod ? todayCostText : "--", "", isCurrentPeriod ? todayCostDetail : "") +
-        summaryItem("当月费用", monthCostText, "", costDetail) +
-        summaryItem("当月平均费用", formatCnyAmount(averageCostPerMillion), "/1M", averageCostDetail) +
-        summaryItem("当月用量", formatInteger(monthlyUsageDisplay), "Tokens", usageDetail) +
-        summaryItem("钱包余额", formatCnyAmount(walletCnyBalance), "CNY", "");
       const head = summaryEl.querySelector(":scope > .dsapi-plus-section-head");
+      summaryEl.querySelectorAll(":scope > .dsapi-plus-summary-item").forEach((el) => el.remove());
       if (head) {
-        summaryEl.querySelectorAll(":scope > .dsapi-plus-summary-item").forEach((el) => el.remove());
-        head.insertAdjacentHTML("afterend", itemsHtml);
+        head.insertAdjacentHTML("afterend", summaryItemsHtml(panelData));
       } else {
         summaryEl.innerHTML =
           '<div class="dsapi-plus-section-head" style="margin-bottom:12px;width:100%;"><div class="dsapi-plus-section-title">💰 费用摘要</div></div>' +
-          itemsHtml;
+          summaryItemsHtml(panelData);
       }
     }
 
@@ -4961,8 +4937,8 @@
     const detailLayout = panel.querySelector(".dsapi-plus-detail-layout");
     if (detailLayout && detailLayout.children[0]) {
       detailLayout.children[0].innerHTML = sortedModels.length
-        ? renderModelTable(sortedModels, cost)
-        : '<div class="dsapi-plus-message">当前月份暂无请求或 Token 用量。</div>';
+      ? renderModelTable(sortedModels, cost)
+      : '<div class="dsapi-plus-message">当前区间暂无请求或 Token 用量。</div>';
     }
 
     const donut = panel.querySelector(".dsapi-plus-model-donut");
@@ -4973,7 +4949,7 @@
         if (sortedModels.length && !hasChart) {
           frame.innerHTML = '<div class="dsapi-plus-chart" data-dsapi-chart="models"></div>';
         } else if (!sortedModels.length && hasChart) {
-          frame.innerHTML = '<div class="dsapi-plus-message">当前月份暂无模型用量。</div>';
+          frame.innerHTML = '<div class="dsapi-plus-message">当前区间暂无模型用量。</div>';
         }
       }
     }
@@ -4999,7 +4975,7 @@
             const msg = keySection.querySelector(".dsapi-plus-message");
             if (!msg) {
               if (tableWrap) tableWrap.remove();
-              keySection.insertAdjacentHTML("beforeend", '<div class="dsapi-plus-message">当前月份暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>');
+              keySection.insertAdjacentHTML("beforeend", '<div class="dsapi-plus-message">当前区间暂无 Key 级别用量数据，或 API 未返回 Key 信息。</div>');
             }
           }
         } else {
@@ -5026,12 +5002,12 @@
       }
       return;
     }
-    // keyDetail 相关图表（keyCost/keyDaily）由独立数据流管理；monthTrend 由月度统计区块独立管理，
-    // 二者均不由 panelData 驱动，需跳过避免被无 key 的 buildChartOption 判定为无效而 dispose
-    const independentKeys = new Set(['keyCost', 'keyDaily', 'monthTrend']);
+    // keyDetail 相关图表（keyCost/keyDaily）由独立数据流管理，不由 panelData 驱动，
+    // 需跳过避免被无 key 的 buildChartOption 判定为无效而 dispose；monthTrend 已并入主面板由 panelData 驱动
+    const independentKeys = new Set(['keyCost', 'keyDaily']);
     const remaining = [];
     for (const entry of state.charts) {
-      // 跳过独立数据流图表（keyDetail/monthTrend），不依赖 panelData 更新
+      // 跳过独立数据流图表（keyCost/keyDaily），不依赖 panelData 更新
       if (independentKeys.has(entry.key)) {
         remaining.push(entry);
         continue;
@@ -5052,7 +5028,7 @@
       .then((echarts) => {
         if (!panel.isConnected) return;
 
-        const keys = ["models", "keyCost", "keyDaily", "dailyTotal"];
+        const keys = ["models", "keyCost", "keyDaily", "dailyTotal", "monthTrend"];
         for (const key of keys) {
           const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
           const option = buildChartOption(key, panelData);
@@ -5094,7 +5070,7 @@
       .then((echarts) => {
         if (!panel.isConnected) return;
         // 仅补齐由 panelData 驱动的主图表，Key 明细图表由独立数据流管理
-        const keys = ["models", "dailyTotal"];
+        const keys = ["models", "dailyTotal", "monthTrend"];
         for (const key of keys) {
           const container = panel.querySelector(`[data-dsapi-chart="${key}"]`);
           const option = buildChartOption(key, panelData);
@@ -5367,18 +5343,21 @@
   // 返回: ECharts option 对象；当月无每日数据时返回 null
   function buildDailyTotalChartOption(panelData) {
     const { amount, cost } = panelData;
-    // [修改] 原因：与"每日费用明细"共用最大显示日口径（getMaxDisplayDay），横轴只显示到当天（历史月为月末）
-    // 生成完整日期序列后按日期从 amount/cost 取值，缺失日期补 0
-    const { year, month } = parsePeriod(panelData.period);
+    // 跨月区间：每日序列取所有有数据的完整日期并集（按字典序即时间序），自然跨月连续；
+    // 兜底年月取区间止月（panelData.period 跨月时为 "start~end" 复合格式，parsePeriod 解析不了）
+    const { year: fallbackYear, month: fallbackMonth } = parsePeriod(panelData.end);
     const cnyBlock = (cost || []).find((b) => b.currency === "CNY");
     const cnyDays = cnyBlock ? cnyBlock.days || [] : [];
     // 将 API 返回的日期统一规范化为 YYYY-MM-DD，兼容 "YYYY-MM-DD" / "MM-DD" / 纯数字等格式
     const normalizeDayKey = (dateStr) => {
-      const m = String(dateStr || "").match(/(\d{1,2})$/);
-      if (!m) return null;
-      const day = Number(m[1]);
-      if (day < 1 || day > 31) return null;
-      return year + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+      const s = String(dateStr || "");
+      let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+      m = s.match(/^(\d{1,2})-(\d{1,2})$/);
+      if (m) return `${fallbackYear}-${String(m[1]).padStart(2, "0")}-${String(m[2]).padStart(2, "0")}`;
+      m = s.match(/^(\d{1,2})$/);
+      if (m) return `${fallbackYear}-${String(fallbackMonth).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+      return null;
     };
     const costByDate = {};
     for (const d of cnyDays) {
@@ -5390,10 +5369,16 @@
       const key = normalizeDayKey(d.date);
       if (key) tokenByDate[key] = d.tokens || 0;
     }
-    const endDay = getMaxDisplayDay(year, month);
-    const dates = [];
-    for (let d = 1; d <= endDay; d++) {
-      dates.push(year + "-" + String(month).padStart(2, "0") + "-" + String(d).padStart(2, "0"));
+    // 跨月：日期序列取所有有数据的完整日期的并集（自然跨月连续）；单月兜底按年月生成 1..月末
+    // [修复] 原因：cost API 的 days 可能包含未来日期（当月整月网格），横坐标必须截止到今天
+    const _now = new Date();
+    const _todayKey = `${_now.getUTCFullYear()}-${String(_now.getUTCMonth() + 1).padStart(2, "0")}-${String(_now.getUTCDate()).padStart(2, "0")}`;
+    let dates = Object.keys(Object.assign({}, costByDate, tokenByDate)).filter((d) => d <= _todayKey).sort();
+    if (!dates.length) {
+      const endDay = getMaxDisplayDay(fallbackYear, fallbackMonth);
+      for (let d = 1; d <= endDay; d++) {
+        dates.push(`${fallbackYear}-${String(fallbackMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+      }
     }
     const costData = dates.map((date) => costByDate[date] || 0);
     const tokenData = dates.map((date) => tokenByDate[date] || 0);
@@ -5797,7 +5782,17 @@
   }
 
   // 从导出接口获取 Key 级用量数据
-  async function fetchKeyDetailFromExport(period) {
+  // 从导出接口获取 Key 级用量数据（按主面板起止区间跨月聚合，需求 1）
+  // 参数:
+  //   start: string，起始月，如 "2026-1"
+  //   end:   string，结束月，如 "2026-9"；省略且 start 为合法单月时按单月处理（兼容旧调用）
+  // 返回: Key 级聚合数组（按费用降序）或 null
+  async function fetchKeyDetailFromExport(start, end) {
+    // 兼容旧调用：仅传单月 period 时视作单月区间
+    if (!end && /^\d{4}-\d{1,2}$/.test(String(start))) end = start;
+    const periods = enumerateMonths(start, end);
+    if (!periods.length) return null;
+
     state.keyDetailLoading = true;
     state.keyDetailError = "";
     // 取消上一次未完成的导出请求，避免快速切月/连续刷新时乱序覆盖
@@ -5808,98 +5803,117 @@
     const reqId = ++state.keyDetailReqId;
     updateKeyDetailUI();
 
+    const pad = (n) => String(n).padStart(2, "0");
+    const now = new Date();
+    const todayKey = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
+    // 导出 CSV 的日期列统一规范为 YYYY-MM-DD（兼容完整日期 / MM-DD / 纯日号），保证跨月日期不冲突
+    const normDate = (raw, year, month) => {
+      const s = String(raw || "").trim();
+      let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+      if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+      m = s.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+      if (m) return `${year}-${pad(m[1])}-${pad(m[2])}`;
+      m = s.match(/^(\d{1,2})$/);
+      if (m) return `${year}-${pad(month)}-${pad(m[1])}`;
+      return null;
+    };
+
     try {
-      const { year, month } = parsePeriod(period);
-      const query = `year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
+      // 1. 并发拉取各月导出行（历史月命中永久缓存，仅当前月按 TTL 可能真正下载 ZIP）
+      const fetched = await runWithConcurrency(
+        periods.map((period) => () => loadExportRowsForMonth(period, signal)),
+        2
+      );
+      if (reqId !== state.keyDetailReqId) return null;
+      if (signal && signal.aborted) return null;
 
-      // 1. 下载 ZIP 文件
-      var zipBlob = await fetchExportBlob(`/api/v0/usage/export?${query}`, signal);
-      console.log("[DeepSeek Usage Panel Plus] 下载 ZIP 大小", (zipBlob.size || 0), "bytes");
+      // 2. 把各月行聚合进共享映射（key|||model 与 key|||date(YYYY-MM-DD)）
+      const detailMap = {};       // key|||model -> 模型级聚合条目
+      const dailyDetailMap = {};  // key|||date   -> 单日聚合条目
+      const dateSet = new Set();
+      const addDate = (date) => { if (date && date <= todayKey) dateSet.add(date); };
+      let okMonths = 0;
+      for (let mi = 0; mi < periods.length; mi++) {
+        const period = periods[mi];
+        const res = fetched[mi];
+        if (!res) continue; // 单月下载失败：跳过，由下方 okMonths 判定是否整体失败
+        okMonths += 1;
 
-      // Blob → ArrayBuffer（JSZip 需要 ArrayBuffer）
-      var zipBuffer = await new Promise(function (res, rej) {
-        var reader = new FileReader();
-        reader.onload = function () { res(reader.result); };
-        reader.onerror = function () { rej(new Error("Blob 转 ArrayBuffer 失败")); };
-        reader.readAsArrayBuffer(zipBlob);
-      });
-
-      // 2. 用 JSZip 解压
-      if (typeof JSZip === "undefined") throw new Error("JSZip 库未加载");
-      var zip = await JSZip.loadAsync(zipBuffer);
-      console.log("[DeepSeek Usage Panel Plus] JSZip 解压成功, 文件列表:", Object.keys(zip.files));
-
-      // 3. 找到 amount-*.csv 文件
-      var csvFiles = Object.keys(zip.files).filter(function (name) { return /amount.*\.csv$/i.test(name); });
-      console.log("[DeepSeek Usage Panel Plus] ZIP 中的 CSV 文件", csvFiles);
-      if (!csvFiles.length) throw new Error("ZIP 中未找到 amount-*.csv 文件");
-
-      // 手动解析 ZIP 提取 CSV（JSZip 的 async 方法在 GM 沙箱中会挂起）
-      var csvContent = extractFileFromZip(zipBuffer, csvFiles[0]);
-      if (!csvContent) throw new Error("无法从 ZIP 中提取 " + csvFiles[0]);
-
-      // 4. 解析 CSV
-      const { headers, rows } = parseCSV(csvContent);
-      console.log("[DeepSeek Usage Panel Plus] CSV 表头", headers);
-      console.log("[DeepSeek Usage Panel Plus] CSV 行数", rows.length);
-      if (rows.length > 0) console.log("[DeepSeek Usage Panel Plus] CSV 第1行", rows[0]);
-
-      // 5. 根据 CSV 表头定位关键列
-      const idx = (pattern) => headers.findIndex((h) => pattern.test(h.toLowerCase()));
-      const colName = idx(/api_key_name|key_name|name/i);         // Key 名称列
-      const colType = idx(/^type$/i);                              // 类型列
-      const colPrice = idx(/^price$/i);                            // 单价列
-      const colAmount = idx(/^amount$/i);                          // 用量列
-      const colModel = idx(/model/i);                              // 模型列
-      const colDate = idx(/utc_date|date/i);                        // 日期列
-
-      console.log("[DeepSeek Usage Panel Plus] CSV 字段映射", {
-        api_key_name: colName >= 0 ? headers[colName] : "未找到",
-        type: colType >= 0 ? headers[colType] : "未找到",
-        price: colPrice >= 0 ? headers[colPrice] : "未找到",
-        amount: colAmount >= 0 ? headers[colAmount] : "未找到",
-        model: colModel >= 0 ? headers[colModel] : "未找到",
-        allHeaders: headers,
-      });
-      if (colName < 0 || colType < 0 || colAmount < 0) {
-        throw new Error(`CSV 缺少必要列，请检查表头：${headers.join(" | ")}`);
-      }
-
-      // 6. 先按 (api_key_name, model) 二元组聚合，确保模型级数据精确
-      const detailMap = {};
-      for (const row of rows) {
-        const keyName = String(row[colName] || "unknown");
-        const type = colType >= 0 ? String(row[colType] || "") : "";
-        const amount = colAmount >= 0 ? Number(row[colAmount]) || 0 : 0;
-        const price = colPrice >= 0 ? Number(row[colPrice]) || 0 : 0;
-        const modelName = colModel >= 0 ? String(row[colModel] || "") : "";
-        if (!modelName) continue;
-        const pairKey = keyName + "|||" + modelName;
-
-        if (!detailMap[pairKey]) {
-          detailMap[pairKey] = {
-            key: keyName, model: modelName,
-            requestCount: 0,
-            inputMissTokens: 0, inputHitTokens: 0, outputTokens: 0,
-            inputMissCost: 0, inputHitCost: 0, outputCost: 0,
-            totalCost: 0,
-          };
+        // 5. 根据该月 CSV 表头定位关键列
+        const idx = (pattern) => res.headers.findIndex((h) => pattern.test(String(h).toLowerCase()));
+        const colName = idx(/api_key_name|key_name|name/i);   // Key 名称列
+        const colType = idx(/^type$/i);                        // 类型列
+        const colPrice = idx(/^price$/i);                      // 单价列
+        const colAmount = idx(/^amount$/i);                    // 用量列
+        const colModel = idx(/model/i);                        // 模型列
+        const colDate = idx(/utc_date|date/i);                 // 日期列
+        if (colName < 0 || colType < 0 || colAmount < 0) {
+          if (mi === 0) throw new Error(`CSV 缺少必要列，请检查表头：${res.headers.join(" | ")}`);
+          continue;
         }
-        const entry = detailMap[pairKey];
-        const cost = price * amount;
-        if (type === "input_cache_hit_tokens" || type === "prompt_cache_hit_token" || type === "inputCacheHit") {
-          entry.inputHitTokens += amount; entry.inputHitCost += cost;
-        } else if (type === "input_cache_miss_tokens" || type === "prompt_cache_miss_token" || type === "inputCacheMiss") {
-          entry.inputMissTokens += amount; entry.inputMissCost += cost;
-        } else if (type === "output_tokens" || type === "completion_token" || type === "output") {
-          entry.outputTokens += amount; entry.outputCost += cost;
-        } else if (type === "request_count" || type === "calls" || type === "requests") {
-          entry.requestCount += amount;
-        }
-        entry.totalCost += cost;
-      }
+        const { year, month } = parsePeriod(period);
 
-      // 7. 从模型级数据汇总到 Key 级
+        for (const row of res.rows) {
+          const keyName = String(row[colName] || "unknown");
+          const type = colType >= 0 ? String(row[colType] || "") : "";
+          const amount = colAmount >= 0 ? Number(row[colAmount]) || 0 : 0;
+          const price = colPrice >= 0 ? Number(row[colPrice]) || 0 : 0;
+          const modelName = colModel >= 0 ? String(row[colModel] || "") : "";
+
+          // 6. 模型级明细（key|||model）：确保模型级数据精确
+          if (modelName) {
+            const pairKey = keyName + "|||" + modelName;
+            if (!detailMap[pairKey]) {
+              detailMap[pairKey] = {
+                key: keyName, model: modelName,
+                requestCount: 0,
+                inputMissTokens: 0, inputHitTokens: 0, outputTokens: 0,
+                inputMissCost: 0, inputHitCost: 0, outputCost: 0,
+                totalCost: 0,
+              };
+            }
+            const entry = detailMap[pairKey];
+            const cost = price * amount;
+            if (type === "input_cache_hit_tokens" || type === "prompt_cache_hit_token" || type === "inputCacheHit") {
+              entry.inputHitTokens += amount; entry.inputHitCost += cost;
+            } else if (type === "input_cache_miss_tokens" || type === "prompt_cache_miss_token" || type === "inputCacheMiss") {
+              entry.inputMissTokens += amount; entry.inputMissCost += cost;
+            } else if (type === "output_tokens" || type === "completion_token" || type === "output") {
+              entry.outputTokens += amount; entry.outputCost += cost;
+            } else if (type === "request_count" || type === "calls" || type === "requests") {
+              entry.requestCount += amount;
+            }
+            entry.totalCost += cost;
+          }
+
+          // 8. 每日明细（key|||date）：费用 / 请求数 / Token
+          if (keyName !== "unknown" && colDate >= 0) {
+            const date = normDate(row[colDate], year, month);
+            if (!date) continue;
+            addDate(date);
+            const pairKey = keyName + "|||" + date;
+            if (!dailyDetailMap[pairKey]) {
+              dailyDetailMap[pairKey] = { requestCount: 0, missTokens: 0, hitTokens: 0, outTokens: 0, cost: 0 };
+            }
+            const dd = dailyDetailMap[pairKey];
+            const cost = price * amount;
+            if (type === "request_count" || type === "calls" || type === "requests") {
+              dd.requestCount += amount;
+            } else if (type === "input_cache_hit_tokens" || type === "prompt_cache_hit_token" || type === "inputCacheHit") {
+              dd.hitTokens += amount; dd.cost += cost;
+            } else if (type === "input_cache_miss_tokens" || type === "prompt_cache_miss_token" || type === "inputCacheMiss") {
+              dd.missTokens += amount; dd.cost += cost;
+            } else if (type === "output_tokens" || type === "completion_token" || type === "output") {
+              dd.outTokens += amount; dd.cost += cost;
+            }
+          }
+        }
+      }
+      if (signal && signal.aborted) return null;
+      if (reqId !== state.keyDetailReqId) return null;
+      if (okMonths === 0) throw new Error("全部月份导出失败，无法获取 Key 明细");
+
+      // 7. 模型级数据汇总到 Key 级
       const keyMap = {};
       for (const item of Object.values(detailMap)) {
         if (!keyMap[item.key]) {
@@ -5936,38 +5950,16 @@
 
       const sorted = Object.values(keyMap).sort((a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount);
 
-      // 8. 按 (key, date) 聚合每日详情（费用、请求数、Token，用于每日详情折线图和订阅报告日明细）
-      const dailyDetailMap = {};
-      const allDates = new Set();
-      for (const row of rows) {
-        const keyName = String(row[colName] || "unknown");
-        if (keyName === "unknown") continue;
-        const date = colDate >= 0 ? String(row[colDate] || "") : "";
-        if (!date) continue;
-        allDates.add(date);
-        const type = colType >= 0 ? String(row[colType] || "") : "";
-        const amount = colAmount >= 0 ? Number(row[colAmount]) || 0 : 0;
-        const price = colPrice >= 0 ? Number(row[colPrice]) || 0 : 0;
-        const pairKey = keyName + "|||" + date;
-        if (!dailyDetailMap[pairKey]) {
-          dailyDetailMap[pairKey] = { requestCount: 0, missTokens: 0, hitTokens: 0, outTokens: 0, cost: 0 };
-        }
-        var dd = dailyDetailMap[pairKey];
-        var cost = price * amount;
-        if (type === "request_count" || type === "calls" || type === "requests") {
-          dd.requestCount += amount;
-        } else if (type === "input_cache_hit_tokens" || type === "prompt_cache_hit_token" || type === "inputCacheHit") {
-          dd.hitTokens += amount; dd.cost += cost;
-        } else if (type === "input_cache_miss_tokens" || type === "prompt_cache_miss_token" || type === "inputCacheMiss") {
-          dd.missTokens += amount; dd.cost += cost;
-        } else if (type === "output_tokens" || type === "completion_token" || type === "output") {
-          dd.outTokens += amount; dd.cost += cost;
-        }
+      // 横轴补全：数据日 ∪ 区间内每月 1 号 → 当天/月末（历史月为月末，当前月到今日，需求 2 不外扩）
+      for (const period of periods) {
+        const { year, month } = parsePeriod(period);
+        const endDay = getMaxDisplayDay(year, month);
+        const prefix = `${year}-${pad(month)}-`;
+        for (let d = 1; d <= endDay; d++) addDate(prefix + pad(d));
       }
-      const sortedDates = Array.from(allDates).sort();
-      // 补全从本月1号到当天（或月末）的所有日期，确保无数据日也出现在图表横坐标中
-      fillDateRange(sortedDates, year, month);
-      // 构建每 key 每日系列数据
+      const sortedDates = Array.from(dateSet).sort();
+
+      // 构建每 key 每日系列数据（零值补齐，与横轴对齐）
       var dailySerieMap = {};
       for (const [pairKey, dd] of Object.entries(dailyDetailMap)) {
         const sep = pairKey.lastIndexOf("|||");
@@ -5975,7 +5967,13 @@
         const d = pairKey.substring(sep + 3);
         if (!dailySerieMap[k]) {
           dailySerieMap[k] = { name: k, cost: {}, request: {}, tokens: {}, miss: {}, hit: {} };
-          for (const dt of sortedDates) { dailySerieMap[k].cost[dt] = 0; dailySerieMap[k].request[dt] = 0; dailySerieMap[k].tokens[dt] = 0; dailySerieMap[k].miss[dt] = 0; dailySerieMap[k].hit[dt] = 0; }
+          for (const dt of sortedDates) {
+            dailySerieMap[k].cost[dt] = 0;
+            dailySerieMap[k].request[dt] = 0;
+            dailySerieMap[k].tokens[dt] = 0;
+            dailySerieMap[k].miss[dt] = 0;
+            dailySerieMap[k].hit[dt] = 0;
+          }
         }
         dailySerieMap[k].cost[d] = dd.cost;
         dailySerieMap[k].request[d] = dd.requestCount;
@@ -6010,6 +6008,9 @@
       };
 
       console.log("[DeepSeek Usage Panel Plus] Key 明细聚合结果", {
+        range: `${start}~${end}`,
+        months: periods.length,
+        okMonths,
         keysCount: sorted.length,
         sample: sorted.slice(0, 3),
       });
@@ -6444,22 +6445,6 @@
     panel.querySelectorAll(".dsapi-plus-toggle-section-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const section = btn.dataset.section;
-        // [修改] 原因：月度统计为独立区块，state 字段不同（monthlySummaryVisible），单独分支处理
-        if (section === "monthSummary") {
-          state.monthlySummaryVisible = !state.monthlySummaryVisible;
-          btn.classList.toggle("active", state.monthlySummaryVisible);
-          saveMonthSummaryVisible();
-          const block = panel.querySelector('.dsapi-plus-month-summary-section[data-section="monthSummary"]');
-          if (block) {
-            block.style.display = state.monthlySummaryVisible ? "" : "none";
-            // 展开时才触发懒加载；已缓存/已加载则只是重绘图表
-            if (state.monthlySummaryVisible) loadMonthSummarySection(panel);
-          }
-          requestAnimationFrame(() => {
-            for (const { instance } of state.charts) instance?.resize();
-          });
-          return;
-        }
         // [修改] 原因：Key 明细 / 每日明细为独立区块，state 字段不同，单独分支处理整体显示/隐藏
         if (section === "keyDetail" || section === "dailyDetail") {
           const isKey = section === "keyDetail";
@@ -6484,6 +6469,9 @@
         let block;
         if (section === "models") {
           block = panel.querySelector(".dsapi-plus-section");
+        } else if (section === "monthTrend") {
+          // 月度趋势是独立 .dsapi-plus-section（非 .dsapi-plus-chart-block），单独定位
+          block = panel.querySelector('.dsapi-plus-section[data-section="monthTrend"]');
         } else {
           const chartEl = panel.querySelector(`[data-dsapi-chart="${section}"]`);
           if (chartEl) block = chartEl.closest(".dsapi-plus-chart-block");
@@ -6497,17 +6485,9 @@
       });
     });
 
-    // 月度统计区块内「刷新」按钮：绕过缓存 TTL 强更跨月数据
-    const monthRefreshBtn = panel.querySelector(".dsapi-plus-month-summary-refresh-btn");
-    if (monthRefreshBtn) {
-      monthRefreshBtn.addEventListener("click", () => {
-        loadMonthSummarySection(panel, true);
-      });
-    }
-
-    // 月度统计范围起止下拉框：改选后更新 state 并重新加载，止早于起时自动校正
-    const startSelect = panel.querySelector(".dsapi-plus-month-range-start");
-    const endSelect = panel.querySelector(".dsapi-plus-month-range-end");
+    // 区间聚合起止下拉框：改选后更新 state 并重新加载，止早于起时自动校正
+    const startSelect = panel.querySelector(".dsapi-plus-range-start");
+    const endSelect = panel.querySelector(".dsapi-plus-range-end");
     const normalizeMonthRange = (start, end) => {
       // 月份比较：转成 "YYYY*100+MM" 数值便于跨年比较
       const toNum = (p) => {
@@ -6517,32 +6497,33 @@
       return toNum(start) <= toNum(end) ? { start, end } : { start: end, end: start };
     };
     if (startSelect) {
-      startSelect.addEventListener("change", () => {
+      startSelect.addEventListener("change", (e) => {
+        e.stopPropagation(); // 避免触发 document 上的全局 change 监听造成重复刷新
         const next = startSelect.value;
         if (!/^\d{4}-\d{1,2}$/.test(next)) return;
-        const range = normalizeMonthRange(next, state.monthRangeEnd);
-        state.monthRangeStart = range.start;
-        state.monthRangeEnd = range.end;
-        saveMonthRangeStart();
-        saveMonthRangeEnd();
-        // 同步两个下拉框的选中值
-        startSelect.value = state.monthRangeStart;
-        if (endSelect) endSelect.value = state.monthRangeEnd;
-        loadMonthSummarySection(panel, true);
+        const range = normalizeMonthRange(next, state.rangeEnd || endSelect.value);
+        state.rangeStart = range.start;
+        state.rangeEnd = range.end;
+        startSelect.value = state.rangeStart;
+        if (endSelect) endSelect.value = state.rangeEnd;
+        saveRangeWindow(state.rangeStart, state.rangeEnd); // [需求 4] 区间持久化
+        refresh(true);
+        fetchKeyDetailFromExport(state.rangeStart, state.rangeEnd);
       });
     }
     if (endSelect) {
-      endSelect.addEventListener("change", () => {
+      endSelect.addEventListener("change", (e) => {
+        e.stopPropagation(); // 避免触发 document 上的全局 change 监听造成重复刷新
         const next = endSelect.value;
         if (!/^\d{4}-\d{1,2}$/.test(next)) return;
-        const range = normalizeMonthRange(state.monthRangeStart, next);
-        state.monthRangeStart = range.start;
-        state.monthRangeEnd = range.end;
-        saveMonthRangeStart();
-        saveMonthRangeEnd();
-        if (startSelect) startSelect.value = state.monthRangeStart;
-        endSelect.value = state.monthRangeEnd;
-        loadMonthSummarySection(panel, true);
+        const range = normalizeMonthRange(state.rangeStart || startSelect.value, next);
+        state.rangeStart = range.start;
+        state.rangeEnd = range.end;
+        if (startSelect) startSelect.value = state.rangeStart;
+        endSelect.value = state.rangeEnd;
+        saveRangeWindow(state.rangeStart, state.rangeEnd); // [需求 4] 区间持久化
+        refresh(true);
+        fetchKeyDetailFromExport(state.rangeStart, state.rangeEnd);
       });
     }
 
@@ -6589,10 +6570,16 @@
           "dsapi_plus_subscriptions",
           "dsapi_plus_subscription_last_sent",
           "dsapi_plus_compact_view",
+          "dsapi_plus_range_start",   // [需求 4] 区间持久化项属于用户设置，重置时一并清除
+          "dsapi_plus_range_end",
+          "dsapi_plus_month_cost_visible", // 旧「当月费用」开关存档（已废弃，清除残留）
         ];
         for (var ki = 0; ki < keys.length; ki++) {
           try { localStorage.removeItem(keys[ki]); } catch (e) { /* ignore */ }
         }
+        // 需求 3：同时清除按月用量数据缓存（历史月永久缓存 + 当前月 TTL 缓存），
+        // 保证「清除缓存」对全部数据缓存生效，而不仅仅是设置项。
+        clearAllDataCaches();
         location.reload();
       });
     }
@@ -6661,22 +6648,6 @@
       });
     });
 
-    // 月份下拉选择
-    const periodSelect = panel.querySelector(".dsapi-plus-period-select");
-    if (periodSelect) {
-      periodSelect.addEventListener("change", () => {
-        state.selectedPeriod = periodSelect.value;
-        // 清除旧的 Key 明细数据与费用分布图，避免切月后残留旧月份内容
-        state.keyDetailData = null;
-        state.keyDetailError = "";
-        state.keyDetailUpdateTime = "";
-        localStorage.removeItem("dsapi_plus_key_detail");
-        disposeKeyCostChart();
-        refresh(true);
-        // 自动刷新数据 Key 明细（内部会取消上一次未完成的请求）
-        fetchKeyDetailFromExport(periodSelect.value);
-      });
-    }
     // 初始化时应用原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
 
@@ -6808,15 +6779,19 @@
     const panel = ensurePanel();
     if (!panel) return;
 
-    const period = getSelectedPeriod();
-    if (!force && state.selectedPeriod === period && ["1", "error", "loading"].includes(panel.dataset.loaded)) {
+    const { start, end } = getSelectedRange();
+    const rangeKey = `${start}~${end}`;
+    if (!force && state.rangeKey === rangeKey && ["1", "error", "loading"].includes(panel.dataset.loaded)) {
       return;
     }
 
-    state.selectedPeriod = period;
+    state.rangeStart = start;
+    state.rangeEnd = end;
+    state.rangeKey = rangeKey;
+    saveRangeWindow(); // [需求 4] 区间变更/首启落盘，刷新页面后保持用户区间
     panel.dataset.loaded = "loading";
     const requestId = ++state.requestId;
-    renderSkeleton(panel, period);
+    renderSkeleton(panel, start, end);
 
     state.abortController?.abort();
     state.abortController = new AbortController();
@@ -6824,7 +6799,7 @@
     const timeoutId = setTimeout(() => state.abortController.abort(), 30000);
 
     try {
-      const data = await loadData(period, signal);
+      const data = await loadRange(start, end, signal);
       clearTimeout(timeoutId);
       if (requestId !== state.requestId) return;
       panel.dataset.loaded = "1";
@@ -6835,11 +6810,11 @@
       if (error instanceof DOMException && error.name === "AbortError") {
         if (state.abortController && state.abortController.signal !== signal) return;
         panel.dataset.loaded = "error";
-        renderError(panel, period, new Error("请求超时（30 秒）"));
+        renderError(panel, start, end, new Error("请求超时（30 秒）"));
         return;
       }
       panel.dataset.loaded = "error";
-      renderError(panel, period, error);
+      renderError(panel, start, end, error);
       console.error("[DeepSeek Usage Panel Plus]", error);
     }
   }
@@ -6849,7 +6824,7 @@
     state.refreshTimer = window.setTimeout(() => refresh(force), 120);
   }
 
-  // ========== 月度统计区块：渲染与加载 ==========
+  // ========== 月份区间工具函数（供面板区间下拉框与聚合加载使用） ==========
 
   // 计算默认月份窗口：当年 1 月 → 当前月（YTD 年初至今语义）
   // 参数: 无（基于当前系统时间）
@@ -6895,173 +6870,17 @@
       .join("");
   }
 
-  // 渲染月度统计区块 UI。优先使用缓存，缓存无效则发起跨月请求并降级处理。
-  // 参数:
-  //   panel: Element，面板根节点
-  //   force: boolean，是否强制刷新（跳过缓存 TTL）
-  // 返回: 无
-  function loadMonthSummarySection(panel, force) {
-    const block = panel.querySelector('.dsapi-plus-month-summary-section[data-section="monthSummary"]');
-    if (!block) return;
-    const content = block.querySelector(".dsapi-plus-month-summary-content");
-    if (!content) return;
-
-    // 使用用户选定的起止范围（默认为当年 1 月→当前月）
-    let start = state.monthRangeStart;
-    let end = state.monthRangeEnd;
-    if (!start || !end) {
-      const win = getDefaultMonthWindow();
-      start = win.start; end = win.end;
-    }
-    // 命中缓存（TTL 内且窗口一致）且非强制刷新 → 直接用缓存，不发请求
-    if (!force && isMonthRangeCacheValid(state.monthRangeCache, start, end)) {
-      renderMonthSummaryContent(content, { series: state.monthRangeCache.series, start, end, fromCache: true });
-      return;
-    }
-
-    // 已有缓存但窗口不一致（如跨月/跨年滚动） → 仅重拉新增月份，其余复用缓存
-    // 此处简化为：窗口不一致时全量重拉，由于有并发限流与降级兜底，可接受
-    if (state.monthRangeLoading) return;
-    state.monthRangeLoading = true;
-    const requestId = ++state.monthRangeReqId;
-    renderMonthSummaryLoading(content, start, end);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    loadMonthRange(start, end, controller.signal)
-      .then((cache) => {
-        clearTimeout(timeoutId);
-        // 丢弃已被后续请求覆盖的旧结果，避免乱序渲染
-        if (requestId !== state.monthRangeReqId) return;
-        state.monthRangeCache = cache;
-        renderMonthSummaryContent(content, { series: cache.series, start, end, fromCache: false });
-      })
-      .catch((error) => {
-        clearTimeout(timeoutId);
-        if (requestId !== state.monthRangeReqId) return;
-        if (error instanceof DOMException && error.name === "AbortError") {
-          renderMonthSummaryError(content, "请求超时（30 秒），请点击刷新重试");
-        } else {
-          console.error("[DeepSeek Usage Panel Plus] 月度统计加载失败", error);
-          renderMonthSummaryError(content, "加载失败：" + (error?.message || "未知错误"));
-        }
-      })
-      .finally(() => {
-        if (requestId === state.monthRangeReqId) state.monthRangeLoading = false;
-      });
+  // 面板头部区间起止双下拉框（与 buildPanelData / renderSkeleton / renderError 共用，保证结构一致）
+  function rangeSelectsHtml(start, end) {
+    return `
+          <label style="font-size:12px;color:var(--dsapi-plus-muted);display:inline-flex;align-items:center;gap:4px;margin-left:6px;">起
+            <select class="dsapi-plus-range-start dsapi-plus-period-select" style="height:28px;min-width:88px;">${buildMonthRangeOptionsHtml(start)}</select>
+          </label>
+          <label style="font-size:12px;color:var(--dsapi-plus-muted);display:inline-flex;align-items:center;gap:4px;">止
+            <select class="dsapi-plus-range-end dsapi-plus-period-select" style="height:28px;min-width:88px;">${buildMonthRangeOptionsHtml(end)}</select>
+          </label>`;
   }
 
-  // 渲染月度统计区块的加载占位（骨架 + 提示）
-  function renderMonthSummaryLoading(content, start, end) {
-    const count = enumerateMonths(start, end).length;
-    content.innerHTML = `
-      <div class="dsapi-plus-month-summary-loading">
-        <div class="dsapi-plus-month-summary-spinner"></div>
-        <div class="dsapi-plus-month-summary-tip">正在加载 ${start} ~ ${end} 共 ${count} 个月数据…</div>
-      </div>
-    `;
-  }
-
-  // 渲染月度统计区块的加载失败占位
-  function renderMonthSummaryError(content, message) {
-    content.innerHTML = `
-      <div class="dsapi-plus-month-summary-error">
-        <span>⚠️ ${escapeHtml(message)}</span>
-      </div>
-    `;
-  }
-
-  // 根据跨月聚合数据渲染月度统计区块主体（汇总卡 + 双轴趋势图）
-  // 参数:
-  //   content: Element，区块内容容器
-  //   payload: { series[], start, end, fromCache }
-  // 返回: 无
-  function renderMonthSummaryContent(content, payload) {
-    const { series, start, end, fromCache } = payload;
-    const cards = computeMonthSummaryCards(series);
-    const count = enumerateMonths(start, end).length;
-    const monthRangeLabel = `${start} ~ ${end}（${count} 个月）`;
-    const html = `
-      <div class="dsapi-plus-summary">
-        ${summaryItem("区间累计费用", formatCnyAmount(cards.ytdCost), "", cards.avgMonthCost ? `月均 ${formatCnyAmount(cards.avgMonthCost)}` : "")}
-        ${summaryItem("区间累计 Token", formatInteger(cards.ytdTokens), "Tokens", monthRangeLabel)}
-        ${summaryItem("最高消费月", formatCnyAmount(cards.peakCost), "", cards.peakPeriod ? `${cards.peakPeriod} 月` : "")}
-        ${summaryItem("费用环比", computeMomChangeText(series), "", "较前一月")}
-      </div>
-      ${chartHeading("月度费用与 Token 趋势", fromCache ? "缓存数据" : "")}
-      <div class="dsapi-plus-chart-frame" style="height:260px;">
-        <div class="dsapi-plus-chart" style="width:100%;height:260px;" data-dsapi-chart="monthTrend"></div>
-      </div>
-    `;
-    content.innerHTML = html;
-    // 渲染图表（布局已更新，需等一帧保证容器尺寸可测）
-    // 每次内容重渲染都意味着数据可能已更新，用 forceRebuild 确保新数据生效
-    requestAnimationFrame(() => {
-      buildMonthTrendChart(content, true);
-    });
-  }
-
-  // 计算月度统计的汇总卡片数据（YTD、峰值、月均、环比）
-  // 月均按窗口内实际月份数（series.length）计算，因为 loadMonthRange 产出的每一项必带 period
-  function computeMonthSummaryCards(series) {
-    const valid = series || [];
-    let ytdCost = 0, ytdTokens = 0, peakCost = 0, peakPeriod = "";
-    for (const item of valid) {
-      ytdCost += item.costCNY || 0;
-      ytdTokens += item.tokens || 0;
-      if ((item.costCNY || 0) > peakCost) { peakCost = item.costCNY || 0; peakPeriod = item.period; }
-    }
-    const count = valid.length;
-    const avgMonthCost = count > 0 ? ytdCost / count : 0;
-    return { ytdCost, ytdTokens, peakCost, peakPeriod, avgMonthCost };
-  }
-
-  // 计算最近两月的费用环比文案（前一月为 0 时显示 "--"）
-  function computeMomChangeText(series) {
-    const valid = (series || []).filter((i) => i.period);
-    if (valid.length < 2) return "--";
-    const last = valid[valid.length - 1].costCNY || 0;
-    const prev = valid[valid.length - 2].costCNY || 0;
-    if (prev === 0) return last === 0 ? "0%" : "新增";
-    const change = ((last - prev) / prev) * 100;
-    const sign = change >= 0 ? "+" : "";
-    return `${sign}${formatDecimal(change)}%`;
-  }
-
-  // 构建并渲染月度趋势双轴图（月费用柱 + 月 Token 折线），柱顶标注当月费用
-  function buildMonthTrendChart(content, forceRebuild) {
-    getEcharts()
-      .then((echarts) => {
-        const container = content.querySelector('[data-dsapi-chart="monthTrend"]');
-        if (!container) return;
-        const series = (state.monthRangeCache && state.monthRangeCache.series) || [];
-        if (!series.length) {
-          container.innerHTML = '<div class="dsapi-plus-message">暂无月度统计数据。</div>';
-          return;
-        }
-        // 若已有实例：范围未变（非强制）则跳过避免重复初始化；范围变更（强制）先销毁旧实例再用新数据重建
-        const existing = echarts.getInstanceByDom(container);
-        if (existing) {
-          if (!forceRebuild) return;
-          existing.dispose();
-          // 从 state.charts 中移除旧引用，避免后续遍历对已销毁实例操作
-          state.charts = state.charts.filter((entry) => entry.key !== "monthTrend");
-        }
-
-        const option = buildMonthTrendChartOption(series);
-        const instance = echarts.init(container, null, { renderer: "svg" });
-        const zr = instance.getZr();
-        zr.on("mousemove", (event) => startTooltipKeeper(instance, event));
-        zr.on("globalout", () => {
-          if (stopTooltipKeeper(instance)) flushPendingChartUpdates();
-        });
-        instance.setOption(option);
-        state.charts.push({ key: "monthTrend", instance });
-      })
-      .catch((error) => {
-        console.error("[DeepSeek Usage Panel Plus] 月度趋势图初始化失败", error);
-      });
-  }
 
   // 生成月度趋势双轴图的 ECharts option：柱状=月费用（左轴），折线=月Token（右轴），柱顶标环比
   function buildMonthTrendChartOption(series) {
@@ -7166,7 +6985,9 @@
     disposeCharts();
     closeSubscriptionPanel();
     state.lastPanelData = null;
-    state.selectedPeriod = "";
+    state.rangeStart = "";
+    state.rangeEnd = "";
+    state.rangeKey = "";
     state.booted = false;
     const panel = document.getElementById(PANEL_ID);
     if (panel) panel.remove();
@@ -7176,7 +6997,10 @@
     document.addEventListener("change", (event) => {
       const target = event.target;
       if (target instanceof HTMLSelectElement && /^\d{4}-\d{1,2}$/.test(target.value || "")) {
-        scheduleRefresh(true);
+        // [修改] 面板已改为「起~止区间」聚合，不再跟随原生单月下拉；
+        // 区间下拉框自身会 stopPropagation，此处只可能命中原生下拉，
+        // 改为非强制刷新，由 refresh 内的 rangeKey 去重避免无意义的重复请求。
+        scheduleRefresh(false);
       }
     });
 
@@ -7196,8 +7020,9 @@
           scheduleRefresh(false);
           return;
         }
-        const period = getSelectedPeriod();
-        if (period !== state.selectedPeriod || !panel.dataset.loaded) {
+        const { start, end } = getSelectedRange();
+        const rangeKey = `${start}~${end}`;
+        if (rangeKey !== state.rangeKey || !panel.dataset.loaded) {
           scheduleRefresh(false);
         }
       }, 250);
