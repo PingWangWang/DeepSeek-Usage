@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.9
+// @version      1.38.12
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -417,6 +417,14 @@
     return found ? found.label : "关";
   }
 
+  // [新增] 自动刷新按钮文案：直接展示当前间隔，避免必须展开下拉才能看到
+  function updateAutoRefreshBtnText(btn) {
+    if (!btn) return;
+    btn.textContent = state.autoRefreshInterval > 0
+      ? `自动刷新 · ${getAutoRefreshLabel(state.autoRefreshInterval)}`
+      : "自动刷新";
+  }
+
   function nextAutoRefreshInterval(current) {
     const idx = AUTO_REFRESH_INTERVALS.findIndex((i) => i.value === current);
     return AUTO_REFRESH_INTERVALS[(idx + 1) % AUTO_REFRESH_INTERVALS.length].value;
@@ -509,7 +517,7 @@
           深色模式下必须重定义文字色，否则面板内容落在暗色背景上不可见 */
       body.dark .dsapi-plus-panel {
         --dsapi-plus-text: rgb(224 224 232);
-        --dsapi-plus-muted: rgb(158 163 178);
+        --dsapi-plus-muted: rgb(190 194 206); /* [修改] 提高深色下次要文字对比度 */
       }
       .dsapi-plus-page-wide .b7e4e307,
       .dsapi-plus-page-wide main > div {
@@ -1157,8 +1165,8 @@
         color: var(--dsapi-plus-text);
       }
       body.dark .dsapi-plus-key-filter-dropdown {
-        background: #1a1a2e;
-        border-color: rgba(255, 255, 255, 0.15);
+        background: #1a1a2e !important; /* [修改] 覆盖创建时内联的 background:var(--dsapi-plus-bg,#fff) */
+        border-color: rgba(255, 255, 255, 0.15) !important;
       }
       body.dark .dsapi-plus-filter-list label:hover {
         background: rgba(255, 255, 255, 0.06);
@@ -1180,6 +1188,7 @@
       body.dark .dsapi-plus-period-select {
         border-color: rgba(255, 255, 255, 0.3);
         color: var(--dsapi-plus-muted);
+        color-scheme: dark; /* [修改] 原生 select 弹出选项列表跟随深色 */
       }
       body.dark .dsapi-plus-period-select:hover,
       body.dark .dsapi-plus-period-select:focus {
@@ -1394,6 +1403,8 @@
         overflow-y: auto;
       }
       .dsapi-plus-subscribe-panel {
+        --dsapi-plus-text: rgb(var(--ds-rgb-label-1, 2 14 54));
+        --dsapi-plus-muted: rgb(var(--ds-rgb-label-2, 87 97 135));
         background: #fff;
         border-radius: 12px;
         box-shadow: 0 8px 40px rgba(0,0,0,0.15);
@@ -1747,6 +1758,8 @@
         background: rgba(0,0,0,0.5);
       }
       body.dark .dsapi-plus-subscribe-panel {
+        --dsapi-plus-text: #e0e0e0;
+        --dsapi-plus-muted: #bec2ce; /* [修改] 提高深色下次要文字对比度 */
         background: #1a1a2e;
         color: #e0e0e0;
       }
@@ -1768,6 +1781,63 @@
       }
       body.dark .toggle-slider {
         background-color: #555;
+      }
+      /* ===== [修改] 深色模式适配补充：订阅面板/报告预览/提示框/悬浮下拉 =====
+         原因：深色模式下浅色主题的深蓝 hover 背景与深蓝边框几乎不可见，统一替换为白色系 */
+      body.dark .dsapi-plus-subscribe-create-btn:hover,
+      body.dark .dsapi-plus-subscribe-item-actions button:hover,
+      body.dark .dsapi-plus-subscribe-form-actions button:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      body.dark .dsapi-plus-subscribe-item:hover {
+        border-color: rgba(255, 255, 255, 0.25);
+      }
+      body.dark .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-send-btn:hover,
+      body.dark .dsapi-plus-subscribe-form-actions .dsapi-plus-subscribe-save-btn:hover {
+        background: rgba(74, 222, 128, 0.15);
+      }
+      body.dark .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-preview-btn:hover {
+        background: rgba(96, 165, 250, 0.15);
+      }
+      body.dark .dsapi-plus-subscribe-item-actions .dsapi-plus-subscribe-del-btn:hover,
+      body.dark .dsapi-plus-subscribe-batch-del-btn:hover,
+      body.dark .dsapi-plus-subscribe-form-actions .dsapi-plus-subscribe-cancel-btn:hover {
+        background: rgba(248, 113, 113, 0.15);
+      }
+      /* 报告预览：截图图片边框与 Markdown 预览区 */
+      body.dark .dsapi-plus-subscribe-panel img {
+        border-color: rgba(255, 255, 255, 0.15) !important;
+      }
+      /* 提示框：加载中/错误/调试信息 */
+      body.dark .dsapi-plus-message {
+        border-color: rgba(255, 255, 255, 0.18);
+        color: #c7cbd8;
+      }
+      body.dark .dsapi-plus-error {
+        border-color: rgba(248, 113, 113, 0.4);
+        color: #f87171;
+        background: rgba(248, 113, 113, 0.08);
+      }
+      /* 悬浮下拉补强：自动刷新下拉选中项、Key 筛选列表文字 */
+      body.dark .dsapi-plus-auto-refresh-dropdown button.active {
+        color: #4ade80;
+        background: rgba(74, 222, 128, 0.15);
+      }
+      body.dark .dsapi-plus-filter-list label {
+        color: #d0d3de;
+      }
+      /* [修改] 订阅表单/计划行原生 select：弹出选项列表深色兜底 + 覆盖内联深蓝边框 */
+      body.dark .dsapi-plus-subscribe-form-control select,
+      body.dark .dsapi-plus-subscribe-schedule-row select {
+        color-scheme: dark;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+      }
+      /* [修改] 原生 select 弹出选项深色（Firefox/Safari 生效；Chrome Windows 由系统渲染，受 color-scheme 限制） */
+      body.dark .dsapi-plus-period-select option,
+      body.dark .dsapi-plus-subscribe-form-control select option,
+      body.dark .dsapi-plus-subscribe-schedule-row select option {
+        background: #1a1a2e;
+        color: #e0e0e0;
       }
     `;
     document.head.appendChild(style);
@@ -3211,48 +3281,53 @@
   // ========== 订阅功能：截图 ==========
 
   async function captureReportScreenshot(sub, reportData) {
+    // [修改] 截图配色跟随当前主题：深色模式下生成深色报告截图（背景/文字/表格/边框）
+    const isDark = getBodyDark();
+    const c = isDark
+      ? { bg: "#1a1a2e", text: "#e0e0e0", sub: "#9ea3b2", border: "#2a2a40", head: "#23233a", foot: "#7a7f8f", canvasBg: "#1a1a2e" }
+      : { bg: "#fff", text: "#1a1a2e", sub: "#888", border: "#eee", head: "#f5f5f5", foot: "#aaa", canvasBg: "#ffffff" };
     const div = document.createElement("div");
-    div.style.cssText = "position: absolute; left: -9999px; top: 0; width: 420px; padding: 20px 16px; background: #fff; color: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;";
+    div.style.cssText = "position: absolute; left: -9999px; top: 0; width: 420px; padding: 20px 16px; background: " + c.bg + "; color: " + c.text + "; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;";
 
     // 构建报告 HTML（与 Markdown 内容对应）
     let html = `<h1 style="font-size: 20px; margin: 0 0 4px;">📊 DeepSeek 用量报告</h1>`;
-    html += `<p style="color: #888; font-size: 12px; margin: 0 0 16px;">订阅: ${escapeHtml(sub.name)} ｜ 数据月份: ${reportData.month} ｜ 生成时间: ${reportData.generatedAt}</p>`;
+    html += `<p style="color: ${c.sub}; font-size: 12px; margin: 0 0 16px;">订阅: ${escapeHtml(sub.name)} ｜ 数据月份: ${reportData.month} ｜ 生成时间: ${reportData.generatedAt}</p>`;
 
     if (sub.contentOptions.summary) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">💰 费用摘要</h2>';
       html += '<table style="width:100%; border-collapse: collapse; font-size: 12px;">';
-      html += '<tr>' + summaryCell("当日费用", formatCnyAmount(reportData.summary.todayCost)) + summaryCell("当月费用", formatCnyAmount(reportData.summary.totalCost)) + summaryCell("钱包余额", formatCnyAmount(reportData.summary.balance)) + '</tr>';
+      html += '<tr>' + summaryCell("当日费用", formatCnyAmount(reportData.summary.todayCost), c) + summaryCell("当月费用", formatCnyAmount(reportData.summary.totalCost), c) + summaryCell("钱包余额", formatCnyAmount(reportData.summary.balance), c) + '</tr>';
       html += '</table>';
     }
 
     if (sub.contentOptions.todayDetail && reportData.todayKeys) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 当日 Key 明细 (Top ' + Math.min(reportData.todayKeys.length, (sub.contentOptions.topKeys || 10)) + ')</h2>';
-      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
+      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid ' + c.border + ';">';
+      html += '<tr style="background: ' + c.head + ';"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">今日费用</th></tr>';
       if (reportData.todayKeys.length) {
         for (var _kt = 0; _kt < reportData.todayKeys.length; _kt++) {
           var tk = reportData.todayKeys[_kt];
-          html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(tk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(tk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(tk.todayCost) + '</td></tr>';
+          html += '<tr><td style="padding:4px 8px; border-top:1px solid ' + c.border + ';">' + escapeHtml(tk.key) + '</td><td style="padding:4px 8px; border-top:1px solid ' + c.border + '; text-align:right;">' + formatInteger(tk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid ' + c.border + '; text-align:right;">' + formatCnyAmount(tk.todayCost) + '</td></tr>';
         }
       } else {
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee; text-align:center;" colspan="3">今日暂无数据</td></tr>';
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid ' + c.border + '; text-align:center;" colspan="3">今日暂无数据</td></tr>';
       }
       html += '</table>';
     }
 
     if (sub.contentOptions.monthDetail && reportData.monthKeys && reportData.monthKeys.length) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">🔑 Key 月度总明细 (Top ' + reportData.monthKeys.length + ')</h2>';
-      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid #eee;">';
-      html += '<tr style="background: #f5f5f5;"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
+      html += '<table style="width:100%; border-collapse: collapse; font-size: 12px; border: 1px solid ' + c.border + ';">';
+      html += '<tr style="background: ' + c.head + ';"><th style="padding:6px 8px; text-align:left;">Key</th><th style="padding:6px 8px; text-align:right;">总Token</th><th style="padding:6px 8px; text-align:right;">总费用</th></tr>';
       for (var _km = 0; _km < reportData.monthKeys.length; _km++) {
         var mk = reportData.monthKeys[_km];
-        html += '<tr><td style="padding:4px 8px; border-top:1px solid #eee;">' + escapeHtml(mk.key) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatInteger(mk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid #eee; text-align:right;">' + formatCnyAmount(mk.totalCost) + '</td></tr>';
+        html += '<tr><td style="padding:4px 8px; border-top:1px solid ' + c.border + ';">' + escapeHtml(mk.key) + '</td><td style="padding:4px 8px; border-top:1px solid ' + c.border + '; text-align:right;">' + formatInteger(mk.totalTokens) + '</td><td style="padding:4px 8px; border-top:1px solid ' + c.border + '; text-align:right;">' + formatCnyAmount(mk.totalCost) + '</td></tr>';
       }
       html += '</table>';
     }
 
-    html += `<hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;">`;
-    html += `<p style="color: #aaa; font-size: 11px;">由 DeepSeek Usage Plus 自动生成</p>`;
+    html += `<hr style="border: none; border-top: 1px solid ${c.border}; margin: 16px 0;">`;
+    html += `<p style="color: ${c.foot}; font-size: 11px;">由 DeepSeek Usage Plus 自动生成</p>`;
 
     div.innerHTML = html;
     document.body.appendChild(div);
@@ -3262,7 +3337,7 @@
         // html2canvas 未加载，动态加载
         await loadHtml2Canvas();
       }
-      const canvas = await html2canvas(div, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+      const canvas = await html2canvas(div, { scale: 2, useCORS: true, backgroundColor: c.canvasBg });
       const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
       const dataUrl = canvas.toDataURL("image/png");
       return { success: true, imageBlob: blob, imageUrl: dataUrl };
@@ -3364,9 +3439,11 @@
     });
   }
 
-  function summaryCell(label, value) {
-    return '<td style="padding: 8px 12px; border: 1px solid #eee; text-align: center; min-width: 100px;">' +
-      '<div style="color: #888; font-size: 11px;">' + label + '</div>' +
+  function summaryCell(label, value, c) {
+    // [修改] 支持传入配色对象，截图随主题切换深色/浅色
+    c = c || { border: "#eee", sub: "#888" };
+    return '<td style="padding: 8px 12px; border: 1px solid ' + c.border + '; text-align: center; min-width: 100px;">' +
+      '<div style="color: ' + c.sub + '; font-size: 11px;">' + label + '</div>' +
       '<div style="font-size: 15px; font-weight: 600; margin-top: 4px;">' + value + '</div></td>';
   }
 
@@ -3859,7 +3936,7 @@
         if (sub.contentFormat === "screenshot") {
           captureReportScreenshot(sub, reportData).then(function (sr) {
             previewBtn.disabled = false;
-            previewBtn.textContent = "预览";
+            previewBtn.textContent = "预览报告";
             if (sr.success) {
               showReportInPanel(null, sr.imageUrl);
             } else {
@@ -3869,7 +3946,7 @@
         } else {
           showReportInPanel(buildMarkdownReport(sub, reportData), null);
           previewBtn.disabled = false;
-          previewBtn.textContent = "预览";
+          previewBtn.textContent = "预览报告";
         }
       });
     });
@@ -4410,7 +4487,7 @@
         </div>
         <div class="dsapi-plus-actions">
           <div class="dsapi-plus-auto-refresh-wrap" style="position:relative;display:inline-block;">
-            <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;">自动刷新</button>
+            <button type="button" class="dsapi-plus-auto-refresh-btn" style="margin-left:4px;">自动刷新${state.autoRefreshInterval > 0 ? ' · ' + getAutoRefreshLabel(state.autoRefreshInterval) : ''}</button>
             <div class="dsapi-plus-auto-refresh-dropdown">
               ${AUTO_REFRESH_INTERVALS.map(i => `<button type="button" data-value="${i.value}"${state.autoRefreshInterval === i.value ? ' class="active"' : ''}>${i.label}</button>`).join('')}
             </div>
@@ -4800,7 +4877,8 @@
   }
 
   function getChartTextColor() {
-    return getBodyDark() ? "rgba(150, 150, 150, 1)" : "rgba(2, 14, 54, 0.6)";
+    // [修改] 提高深浅两套图表文字对比度：深色更亮、浅色不透明度更高
+    return getBodyDark() ? "rgba(195, 195, 195, 1)" : "rgba(2, 14, 54, 0.8)";
   }
 
   function getChartGridColor() {
@@ -4808,13 +4886,26 @@
   }
 
   function getTooltipCss() {
-    return [
+    // [修改] 深色模式下 tooltip 背景与文字变量同步：tooltipHtml 用 rgb(var(--ds-rgb-label-*))，
+    //        平台未定义这些变量导致深色下文字仍为黑色，此处在 tooltip 根元素上定义浅色变量
+    const isDark = getBodyDark();
+    const base = [
       "padding: 12px",
-      "background-color: rgb(var(--ds-rgb-elevated, 255 255 255))",
       "border-radius: 10px",
       "box-shadow: 0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 9px 28px 8px rgba(0, 0, 0, 0.05)",
       "border: none",
-    ].join(";") + ";";
+    ];
+    if (isDark) {
+      base.unshift(
+        "background-color: #1a1a2e",
+        "--ds-rgb-label-1: 224 224 224",
+        "--ds-rgb-label-2: 190 194 206", /* [修改] 与面板 muted 同步提高对比度 */
+        "--ds-rgb-label-3: 155 160 175"
+      );
+    } else {
+      base.unshift("background-color: rgb(var(--ds-rgb-elevated, 255 255 255))");
+    }
+    return base.join(";") + ";";
   }
 
   function getTooltipPosition(point, params, dom, rect, size) {
@@ -6866,6 +6957,7 @@
         saveAutoRefreshInterval();
         applyAutoRefresh();
         autoRefreshBtn.classList.toggle("active", value > 0);
+        updateAutoRefreshBtnText(autoRefreshBtn); // [新增] 按钮直接显示所选间隔
         dropdown.style.display = "none";
         // 更新浮层内 active 高亮
         dropdown.querySelectorAll("button[data-value]").forEach(b => {
@@ -6882,6 +6974,7 @@
       if (savedInterval > 0 && AUTO_REFRESH_INTERVALS.some((i) => i.value === savedInterval)) {
         state.autoRefreshInterval = savedInterval;
         autoRefreshBtn.classList.add("active");
+        updateAutoRefreshBtnText(autoRefreshBtn); // [新增] 恢复持久化间隔并同步按钮文案
         applyAutoRefresh();
         // 同步下拉选项高亮
         dropdown.querySelectorAll("button[data-value]").forEach(b => {
