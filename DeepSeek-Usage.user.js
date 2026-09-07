@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.4
+// @version      1.38.9
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -33,6 +33,25 @@
   };
 
 
+  // ========== 主题模式持久化（auto / light / dark） ==========
+  // auto  = 跟随站点自身主题（不干预 body.dark）
+  // light / dark = 强制覆盖：翻转 body.dark 类，直接复用站点既有配色与脚本的图表重绘管线
+  const THEME_MODE_KEY = "dsapi_plus_theme_mode";
+  const THEME_MODES = ["auto", "light", "dark"]; // 按钮循环顺序：跟随 → 浅色 → 深色
+
+  function loadThemeMode() {
+    try {
+      const v = localStorage.getItem(THEME_MODE_KEY);
+      return THEME_MODES.indexOf(v) >= 0 ? v : "auto";
+    } catch (e) { /* ignore */ }
+    return "auto";
+  }
+
+  function saveThemeMode() {
+    try { localStorage.setItem(THEME_MODE_KEY, String(state.themeMode)); }
+    catch (e) { /* ignore */ }
+  }
+
   // [需求 4] 区间起止持久化：刷新/重开页面后仍沿用上次设置，而非重置为年初至今。
   // 读取持久化区间（越界/非法时回退到默认窗口），供 state 初始化使用。
   const initialRange = loadRangeWindow();
@@ -60,6 +79,7 @@
     pendingThemeUpdate: false,
     pendingPanelData: null,
     pendingPanelDataTimer: 0, // 延迟更新超时句柄
+    themeMode: loadThemeMode(), // 主题模式：auto（跟随站点）/ light / dark，持久化
     // Key 明细数据（从导出接口获取）
     keyDetailData: null,       // 按 key 聚合后的数据
     keyDetailLoading: false,   // 正在加载中
@@ -485,6 +505,12 @@
         color: var(--dsapi-plus-text);
         font-family: inherit;
       }
+      /* [修改] 原因：平台不提供 --ds-rgb-label-* 变量（实测 0 处定义），面板文字始终走浅色 fallback；
+          深色模式下必须重定义文字色，否则面板内容落在暗色背景上不可见 */
+      body.dark .dsapi-plus-panel {
+        --dsapi-plus-text: rgb(224 224 232);
+        --dsapi-plus-muted: rgb(158 163 178);
+      }
       .dsapi-plus-page-wide .b7e4e307,
       .dsapi-plus-page-wide main > div {
         max-width: none !important;
@@ -717,6 +743,7 @@
       .dsapi-plus-toggle-key-btn,
       .dsapi-plus-toggle-native-btn,
       .dsapi-plus-toggle-compact-btn,
+      .dsapi-plus-theme-btn,
       .dsapi-plus-group-model-btn,
       .dsapi-plus-key-filter-btn,
       .dsapi-plus-cost-chart-btn,
@@ -748,6 +775,30 @@
         background: rgba(214, 69, 65, 0.08);
         color: rgb(214, 69, 65);
         border-color: rgba(214, 69, 65, 0.3);
+      }
+      /* 主题切换按钮：跟随 / 浅色 / 深色 三态循环，强制态高亮为绿色 */
+      .dsapi-plus-theme-btn {
+        appearance: none;
+        border: 1px solid var(--dsapi-plus-muted);
+        background: transparent;
+        color: var(--dsapi-plus-muted);
+        cursor: pointer;
+        opacity: 0.7;
+        transition: none;
+        white-space: nowrap;
+      }
+      .dsapi-plus-theme-btn:hover {
+        opacity: 1;
+        background: rgba(2, 14, 54, 0.05);
+        color: var(--dsapi-plus-text);
+        border-style: solid;
+      }
+      .dsapi-plus-theme-btn.active {
+        opacity: 1;
+        color: #22c55e;
+        border-color: #22c55e;
+        background: rgba(34, 197, 94, 0.08);
+        border-style: solid;
       }
       .dsapi-plus-toggle-key-btn {
         background: transparent;
@@ -1064,6 +1115,16 @@
         border-style: solid;
       }
       body.dark .dsapi-plus-toggle-compact-btn.active {
+        color: #4ade80;
+        border-color: #4ade80;
+        background: rgba(74, 222, 128, 0.12);
+      }
+      body.dark .dsapi-plus-theme-btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--dsapi-plus-text);
+        border-style: solid;
+      }
+      body.dark .dsapi-plus-theme-btn.active {
         color: #4ade80;
         border-color: #4ade80;
         background: rgba(74, 222, 128, 0.12);
@@ -4338,6 +4399,7 @@
     // 条形图高度：每横条 = 表格行高 36px + grid上下边距 40px
     const keyChartHeight = sortedKeys.length ? Math.max(100, sortedKeys.length * 36 + 40) : 160;
     const monthRangeLabel = `${start} ~ ${end}（${monthCount} 个月）`;
+    const themeMeta = themeModeMeta(); // 主题切换按钮的图标/文案/提示
 
     const html = `
       <div class="dsapi-plus-head">
@@ -4356,6 +4418,7 @@
           <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原始视图</button>
           <button type="button" class="dsapi-plus-toggle-compact-btn${state.compactViewVisible ? ' active' : ''}" style="margin-left:4px;">精简视图</button>
           <button type="button" class="dsapi-plus-clear-cache-btn" style="margin-left:4px;">清除缓存</button>
+          <button type="button" class="dsapi-plus-theme-btn${state.themeMode !== 'auto' ? ' active' : ''}" style="margin-left:4px;" title="${themeMeta.title}">${themeMeta.icon} ${themeMeta.text}</button>
         </div>
       </div>
 
@@ -4702,12 +4765,46 @@
     return matched ? `${matched[1]}日` : String(value || "");
   }
 
+  // [新增] 跨月日期轴标签配置：每月首个日期显示「M月D日」作为月份路标，其余显示「D日」，
+  // 解决跨月区间下仅凭日号无法区分所属月份的问题（月度趋势图以月为单位，不受影响）
+  // 参数: dates —— xAxis.data 的完整日期数组（YYYY-MM-DD，按时间升序）
+  // 返回: { interval, formatter }，可直接 Object.assign 到 xAxis.axisLabel
+  function monthAwareAxisLabel(dates) {
+    const list = (dates || []).map((d) => String(d || ""));
+    // 判定是否为「月路标」：系列首个日期，或与前一个日期不同月（自然月交界，含区间从月中起始的起点）
+    const isMonthFirst = (idx) => {
+      if (idx <= 0) return true;
+      const cur = String(list[idx] || "");
+      const prev = String(list[idx - 1] || "");
+      return cur.slice(0, 7) !== prev.slice(0, 7);
+    };
+    const monthFirstSet = new Set();
+    list.forEach((d, i) => {
+      if (isMonthFirst(i)) monthFirstSet.add(d);
+    });
+    return {
+      // 强制显示月交界标签（interval:"auto" 会随机抽样把月首抽掉）；
+      // 其余按密度抽样，目标约 12 个标签，避免标签拥挤
+      interval: (index) => {
+        if (isMonthFirst(index)) return true;
+        const step = Math.max(1, Math.ceil(list.length / 12));
+        return index % step === 0;
+      },
+      formatter: (value) => {
+        const m = String(value || "").match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (!m) return String(value || "");
+        if (monthFirstSet.has(String(value))) return `${Number(m[2])}月${Number(m[3])}日`;
+        return `${Number(m[3])}日`;
+      },
+    };
+  }
+
   function getChartTextColor() {
-    return document.body.classList.contains("dark") ? "rgba(150, 150, 150, 1)" : "rgba(2, 14, 54, 0.6)";
+    return getBodyDark() ? "rgba(150, 150, 150, 1)" : "rgba(2, 14, 54, 0.6)";
   }
 
   function getChartGridColor() {
-    return document.body.classList.contains("dark") ? "rgba(60, 60, 60, 1)" : "#D2D8E5";
+    return getBodyDark() ? "rgba(60, 60, 60, 1)" : "#D2D8E5";
   }
 
   function getTooltipCss() {
@@ -4886,17 +4983,148 @@
     }
   }
 
+  // ========== 主题模式切换（auto / light / dark） ==========
+  // 站点主题通常由 body.dark 或 html.dark 类驱动；脚本的 CSS 变量（--ds-rgb-label-*）、
+  // body.dark 配色分支，以及图表轴色都读取该状态。
+  // 强制模式只需同步 body/html 的 dark 类并触发既有 updateChartTheme 管线，无需自建配色表。
+  let lastAppliedDark = null;  // 本脚本最近一次写入的 dark 期望值；null 表示尚未干预
+  let sitePrefersDark = false; // 站点自身的主题偏好，切回 auto 时按此还原
+
+  // 检测当前是否为暗色：兼容 dark 类（body/html）与站点实际使用的 body[data-ds-dark-theme] 属性
+  // [修改] 原因：平台暗色由 body 的 data-ds-dark-theme 属性驱动（--dsw-alias-* 变量重定义），
+  //       仅靠 dark 类判断真实主题会导致图表配色与页面脱节
+  function getBodyDark() {
+    const body = document.body;
+    const html = document.documentElement;
+    return !!(body && (body.classList.contains("dark") || body.hasAttribute("data-ds-dark-theme")))
+      || !!(html && html.classList.contains("dark"));
+  }
+
+  // 当前模式对应的按钮展示信息（图标 / 文案 / 悬浮提示）
+  function themeModeMeta() {
+    switch (state.themeMode) {
+      case "light": return { icon: "☀", text: "浅色", title: "主题：浅色（点击切换为深色）" };
+      case "dark": return { icon: "🌙", text: "深色", title: "主题：深色（点击切换为跟随站点）" };
+      default: return { icon: "◐", text: "跟随", title: "主题：跟随站点（点击切换为浅色）" };
+    }
+  }
+
+  // 按钮循环：跟随 → 浅色 → 深色 → 跟随
+  function nextThemeMode(mode) {
+    const i = THEME_MODES.indexOf(mode);
+    return THEME_MODES[(i < 0 ? 0 : i + 1) % THEME_MODES.length];
+  }
+
+  // 同步 body 的 dark/light 类与 data-ds-dark-theme 属性，对齐 DeepSeek 平台主题函数（main.js i()）行为；
+  // 同时兼容 html dark 类 / data-theme / color-scheme 多套机制。
+  // [修改] 原因：平台暗色配色由 body[data-ds-dark-theme] 属性驱动（--dsw-alias-* 变量重定义），
+  //       此前仅翻转 dark 类导致页面主体配色不切换，深色模式不生效；light 类为站点浅色态约定，一并管理。
+  // 返回是否确实发生了改动（只有改动时才需要重绘图表）。
+  function setBodyDark(want) {
+    const body = document.body;
+    const html = document.documentElement;
+    let changed = false;
+    if (body) {
+      // 类：深色加 dark、浅色加 light，与站点主题函数行为保持一致
+      if (body.classList.contains("dark") !== want) {
+        body.classList.toggle("dark", want);
+        changed = true;
+      }
+      if (body.classList.contains("light") === want) {
+        body.classList.toggle("light", !want);
+        changed = true;
+      }
+      // 属性：平台暗色配色的真正开关（站点深色时必写 data-ds-dark-theme="dark"）
+      if (body.hasAttribute("data-ds-dark-theme") !== want) {
+        if (want) body.setAttribute("data-ds-dark-theme", "dark");
+        else body.removeAttribute("data-ds-dark-theme");
+        changed = true;
+      }
+    }
+    if (html && html.classList.contains("dark") !== want) {
+      html.classList.toggle("dark", want);
+      changed = true;
+    }
+    // 兼容 data-theme 属性（shadcn/ui / Next.js 风格）：仅在站点已有此属性时才改，避免污染未使用此机制的站点
+    if (html && html.hasAttribute("data-theme")) {
+      const cur = html.getAttribute("data-theme");
+      const next = want ? "dark" : "light";
+      if (cur !== next) {
+        html.setAttribute("data-theme", next);
+        changed = true;
+      }
+    }
+    // color-scheme 总是安全，影响浏览器默认 UI（滚动条、原生表单），不干扰站点自定义样式
+    if (html && html.style.colorScheme !== (want ? "dark" : "light")) {
+      html.style.colorScheme = want ? "dark" : "light";
+    }
+    if (changed) lastAppliedDark = want;
+    return changed;
+  }
+
+  // 应用当前模式：auto 把 body/html 的 dark 类对齐回站点偏好（还原我们强制时加的类）；
+  // light/dark 强制覆盖，并记录期望值 lastAppliedDark 供观察者判断是否被站点覆盖。
+  // 返回 dark 类是否实际发生变化（未变化时不再重绘图表）。
+  function applyThemeMode(reason) {
+    const want = state.themeMode === "auto" ? sitePrefersDark : state.themeMode === "dark";
+    const changed = setBodyDark(want);
+    if (state.themeMode !== "auto") lastAppliedDark = want; // 记录期望值，供观察者判断是否被站点覆盖
+    if (changed) updateChartTheme();
+    return changed;
+  }
+
+  // 高频 watchdog：在点击 / 启动 / 观察者检测到被覆盖时启动一轮，50ms 一次持续 2 秒，
+  // 对抗 React 高频重渲染把 dark 类冲掉。每次 tick 都重新 apply（idempotent），
+  // 不依赖帧时间，节奏更密，能赢过大多数重渲染频率。
+  let themeWatchdogTimer = 0;
+  function startThemeWatchdog(durationMs) {
+    if (state.themeMode === "auto") return;
+    window.clearInterval(themeWatchdogTimer);
+    const endAt = Date.now() + (durationMs || 2000);
+    themeWatchdogTimer = window.setInterval(() => {
+      if (Date.now() >= endAt || state.themeMode === "auto") {
+        window.clearInterval(themeWatchdogTimer);
+        themeWatchdogTimer = 0;
+        return;
+      }
+      applyThemeMode("watchdog");
+    }, 50);
+  }
+
   function startThemeObserver() {
     let themeTimer = 0;
-    new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        if (m.type === "attributes" && m.attributeName === "class") {
-          window.clearTimeout(themeTimer);
-          themeTimer = window.setTimeout(updateChartTheme, 1000);
-          break;
-        }
+    const onClassChange = () => {
+      if (state.themeMode === "auto") {
+        // 跟随站点：仅记录站点偏好并刷新图表配色，不强制
+        sitePrefersDark = getBodyDark();
+        window.clearTimeout(themeTimer);
+        themeTimer = window.setTimeout(updateChartTheme, 1000);
+        return;
       }
-    }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+      // 强制态：body 需同时满足 dark 类 + data-ds-dark-theme 属性（站点真实暗色状态），html 仅为兼容类
+      // [修改] 原因：站点覆盖主题时可能只改属性不改类（或反之），此前只比对 dark 类会漏判
+      const want = lastAppliedDark;
+      const bodyEl = document.body;
+      const htmlEl = document.documentElement;
+      const bodyDark = !!(bodyEl && bodyEl.classList.contains("dark"));
+      const bodyAttr = !!(bodyEl && bodyEl.hasAttribute("data-ds-dark-theme"));
+      const htmlHas = !!(htmlEl && htmlEl.classList.contains("dark"));
+      if (bodyDark === want && bodyAttr === want && htmlHas === want) {
+        // 与我们的期望一致（多为本脚本自己的写入），仅刷新图表配色
+        window.clearTimeout(themeTimer);
+        themeTimer = window.setTimeout(updateChartTheme, 1000);
+        return;
+      }
+      // 站点（如 React 重渲染）试图覆盖主题：记录站点自身偏好后启动 watchdog 持续重新应用
+      sitePrefersDark = getBodyDark();
+      applyThemeMode("observer");
+      startThemeWatchdog(2000);
+    };
+    const obs = new MutationObserver(onClassChange);
+    obs.observe(document.body, { attributes: true, attributeFilter: ["class", "data-ds-dark-theme"] });
+    if (document.documentElement) {
+      obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    }
   }
 
   function updatePanelIncremental(panel, panelData) {
@@ -5286,9 +5514,13 @@
     const textColor = getChartTextColor();
     const gridColor = getChartGridColor();
     const option = chartBaseOption();
+    // [对齐] 三张折线图（keyDaily/dailyTotal/monthTrend）统一 left/right，
+    // 使横轴绘图区宽度像素级一致（right=110 为 dailyTotal 双右轴标签的最大预留值）
     option.grid.left = 56;
-    option.grid.right = 16;
+    option.grid.right = 110;
     option.xAxis.data = dailyData.dates;
+    // [新增] 跨月区间下轴标签带月份路标：每月首个日期显示「M月D日」，其余「D日」
+    Object.assign(option.xAxis.axisLabel, monthAwareAxisLabel(dailyData.dates));
     option.tooltip.formatter = (params) => {
       // 绑定原始索引后按当日总费用降序排序，使 tooltip 优先展示当日消费最高的 Key
       const sorted = params.map((p, i) => ({ p, i })).sort((a, b) => b.p.value - a.p.value);
@@ -5314,6 +5546,9 @@
     // tooltip 保持在图表容器内但不强制裁剪，避免多出滚动条
     option.tooltip.appendToBody = false;
     option.tooltip.confine = false;
+    // [优化] 原因：base 的 splitNumber:1 会让 ECharts 把 52 的峰值取整到 100 的轴顶，曲线顶部大片空白；
+    // 改为 4 刻度自适应，轴顶紧贴实际最大值（约 60），顶部空白大幅减少
+    option.yAxis.splitNumber = 4;
     option.yAxis.axisLabel.formatter = (v) => `¥${formatDecimal(v, 2)}`;
     option.series = dailyData.series.map((s, i) => ({
       name: s.name,
@@ -5389,24 +5624,29 @@
     const textColor = getChartTextColor();
     const gridColor = getChartGridColor();
     const option = chartBaseOption();
+    // [对齐] 与 keyDaily/monthTrend 统一 left/right，保持三图绘图区宽度一致
     option.grid.left = 56;
     option.grid.right = 110;
     option.grid.top = 32;
     option.xAxis.data = dates;
+    // [新增] 跨月区间下轴标签带月份路标（同 keyDaily）：每月首个日期显示「M月D日」，其余「D日」
+    Object.assign(option.xAxis.axisLabel, monthAwareAxisLabel(dates));
     // [修改] 原因：单价量级（元/1M）远小于费用与 Token，共用左轴会被压成贴底直线，改为独立第三 y 轴
     // 三个量纲各自独立缩放：左轴费用、右轴 Token、右轴外侧单价（offset 错开避免标签重叠）
     option.yAxis = [
       {
         type: "value",
         position: "left",
-        splitNumber: 1,
+        // [优化] 原因：base 的 splitNumber:1 会把峰值取整到 50/100 的倍数，轴顶出现大片空白；
+        // 改为 4 刻度自适应，Y 轴顶部贴近实际最大值（每日费用明细图同款优化）
+        splitNumber: 4,
         splitLine: { lineStyle: { color: gridColor } },
         axisLabel: { color: textColor, align: "left", margin: 34, formatter: (v) => `¥${formatDecimal(v)}` },
       },
       {
         type: "value",
         position: "right",
-        splitNumber: 1,
+        splitNumber: 4,
         splitLine: { show: false },
         axisLabel: { color: "#7BCB99", formatter: compactNumber },
       },
@@ -5414,7 +5654,7 @@
         type: "value",
         position: "right",
         offset: 54,
-        splitNumber: 1,
+        splitNumber: 4,
         splitLine: { show: false },
         axisLabel: { color: "#F59E0B", formatter: (v) => `¥${formatDecimal(v)}` },
       },
@@ -6007,14 +6247,6 @@
         })),
       };
 
-      console.log("[DeepSeek Usage Panel Plus] Key 明细聚合结果", {
-        range: `${start}~${end}`,
-        months: periods.length,
-        okMonths,
-        keysCount: sorted.length,
-        sample: sorted.slice(0, 3),
-      });
-
       if (reqId !== state.keyDetailReqId) return null; // 已被更新的请求覆盖，丢弃旧结果
       state.keyDetailData = sorted;
       state.keyDetailDailyData = dailyData;
@@ -6553,6 +6785,22 @@
       }
     }
 
+    // 主题模式切换（跟随站点 → 浅色 → 深色 循环，作用于整个用量页面）
+    const themeBtn = panel.querySelector(".dsapi-plus-theme-btn");
+    if (themeBtn) {
+      themeBtn.addEventListener("click", () => {
+        state.themeMode = nextThemeMode(state.themeMode);
+        saveThemeMode();
+        const meta = themeModeMeta();
+        themeBtn.classList.toggle("active", state.themeMode !== "auto");
+        themeBtn.textContent = `${meta.icon} ${meta.text}`;
+        themeBtn.title = meta.title;
+        // 强制态：翻转 body.dark 并走既有图表重绘；auto 态：还原站点偏好并刷新配色
+        if (!applyThemeMode("click")) updateChartTheme();
+        startThemeWatchdog(2000); // 2 秒内每 50ms 重试，对抗 React 高频重渲染把 dark 类冲掉
+      });
+    }
+
     // 清除缓存
     var clearBtn = panel.querySelector(".dsapi-plus-clear-cache-btn");
     if (clearBtn) {
@@ -6573,6 +6821,7 @@
           "dsapi_plus_range_start",   // [需求 4] 区间持久化项属于用户设置，重置时一并清除
           "dsapi_plus_range_end",
           "dsapi_plus_month_cost_visible", // 旧「当月费用」开关存档（已废弃，清除残留）
+          "dsapi_plus_theme_mode",         // 主题模式（跟随/浅色/深色）属于用户设置，重置时一并清除
         ];
         for (var ki = 0; ki < keys.length; ki++) {
           try { localStorage.removeItem(keys[ki]); } catch (e) { /* ignore */ }
@@ -6838,7 +7087,7 @@
 
   // 构建月度统计范围下拉框可选的月份列表（跨年范围，供起止两个下拉框复用）
   // 参数: 无（基于当前系统时间）
-  // 返回: string[]，形如 ["2025-1", ..., "2026-12"]
+  // 返回: string[]，从当前月向前倒序，形如 ["2026-9", ..., "2023-1"]，便于用户就近选择
   function buildMonthSummaryOptionsList() {
     const now = new Date();
     const currentYear = now.getUTCFullYear();
@@ -6846,10 +7095,9 @@
     // 起始年份：往前多推 3 年，便于查看更早历史（如当前 2026 年则可选到 2023 年）
     const startYear = currentYear - 3;
     const months = [];
-    for (let y = startYear; y <= currentYear; y += 1) {
-      for (let m = 1; m <= 12; m += 1) {
-        // 当前年只允许选到当月，历史年份全选；不允许选未来月份
-        if (y === currentYear && m > currentMonth) continue;
+    for (let y = currentYear; y >= startYear; y -= 1) {
+      // 当前年从当月往下倒序；历史年份全选；不允许选未来月份
+      for (let m = (y === currentYear ? currentMonth : 12); m >= 1; m -= 1) {
         months.push(`${y}-${m}`);
       }
     }
@@ -6890,8 +7138,9 @@
     const textColor = getChartTextColor();
     const gridColor = getChartGridColor();
     const option = chartBaseOption();
+    // [对齐] 与 keyDaily/dailyTotal 统一 left/right，保持三图绘图区宽度一致
     option.grid.left = 56;
-    option.grid.right = 56;
+    option.grid.right = 110;
     option.grid.top = 40;
     option.xAxis.data = labels;
     const hasMultiYear =
@@ -6910,14 +7159,16 @@
       {
         type: "value",
         position: "left",
-        splitNumber: 1,
+        // [优化] 原因：base 的 splitNumber:1 会把峰值取整到 50/100 的倍数，轴顶出现大片空白；
+        // 改为 4 刻度自适应，Y 轴顶部贴近实际最大值（每日费用明细图同款优化）
+        splitNumber: 4,
         splitLine: { lineStyle: { color: gridColor } },
         axisLabel: { color: textColor, align: "left", margin: 34, formatter: (v) => `¥${formatDecimal(v)}` },
       },
       {
         type: "value",
         position: "right",
-        splitNumber: 1,
+        splitNumber: 4,
         splitLine: { show: false },
         axisLabel: { color: "#7BCB99", formatter: compactNumber },
       },
@@ -7034,6 +7285,10 @@
   function bootUsage() {
     if (state.booted) return;
     state.booted = true;
+    // 记录站点自身主题偏好，并立即应用持久化的强制模式（auto 态不干预）
+    sitePrefersDark = getBodyDark();
+    applyThemeMode("boot");
+    startThemeWatchdog(2000); // 启动 2 秒高频 watchdog，对抗 React 重渲染
     ensurePanel();
     startObservers();
     startThemeObserver();
