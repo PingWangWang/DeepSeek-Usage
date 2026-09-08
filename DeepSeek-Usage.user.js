@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.13
+// @version      1.38.15
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -23,6 +23,7 @@
   "use strict";
 
   const PANEL_ID = "dsapi-plus-panel";
+  const VIEW_FAB_ID = "dsapi-plus-view-fab"; // [修复] 原始视图下切换回扩展视图的浮窗按钮（独立于面板，永不被隐藏）
   const STYLE_ID = "dsapi-plus-style";
   const USAGE_PAGE_URL = "https://platform.deepseek.com/usage";
   const TOKEN_TYPES = {
@@ -657,6 +658,39 @@
       body.dsapi-plus-view-native #dsapi-plus-panel {
         display: none !important;
       }
+      /* [修复] 原始视图下用于切回扩展视图的浮窗按钮：直接挂在 body 上、不在面板内，
+         故不受上面 panel 隐藏规则影响，始终可点；默认隐藏，仅原始视图模式显示 */
+      .dsapi-plus-view-fab {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 99999;
+        display: none;
+        appearance: none;
+        padding: 10px 18px;
+        border-radius: 999px;
+        border: 1px solid var(--dsapi-plus-muted);
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        white-space: nowrap;
+      }
+      .dsapi-plus-view-fab:hover {
+        background: rgba(34, 197, 94, 0.2);
+        border-color: #22c55e;
+      }
+      body.dark .dsapi-plus-view-fab {
+        background: rgba(34, 197, 94, 0.18);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      }
+      /* [修复] 浮窗可见性直接由「是否处于原始视图」(body 类) 决定，作为 JS 设置 inline display 的兜底，
+         即使 JS 时序异常也不会让隐藏扩展视图的用户看不到切回入口 */
+      body.dsapi-plus-view-native .dsapi-plus-view-fab {
+        display: flex !important;
+      }
       .dsapi-plus-group-model-btn {
         appearance: none;
         border: 1px solid var(--dsapi-plus-muted);
@@ -878,6 +912,11 @@
       .dsapi-plus-filter-list input {
         margin: 0;
         accent-color: #22c55e;
+      }
+      .dsapi-plus-filter-all-row {
+        font-weight: 600;
+        border-bottom: 1px dashed var(--dsapi-plus-muted);
+        margin-bottom: 2px;
       }
       .dsapi-plus-toggle-chart-btn {
         background: none;
@@ -6751,6 +6790,43 @@
     `;
   }
 
+  // [修复] 切换原生/扩展视图的单一入口：更新状态、隐藏/显示面板、同步头部按钮与浮窗按钮
+  function setNativeContentVisible(visible) {
+    state.nativeContentVisible = visible;
+    saveNativeContentVisible();
+    toggleNativeContent(visible);
+  }
+
+  // [修复] 同步「原始视图」头部按钮与「扩展视图」浮窗按钮的显示/状态
+  function updateViewControls() {
+    const nativeBtn = document.querySelector(".dsapi-plus-toggle-native-btn");
+    if (nativeBtn) {
+      // active=脚本视图(隐藏原生)，非active=原始视图(显示原生)
+      nativeBtn.classList.toggle("active", !state.nativeContentVisible);
+    }
+    const fab = document.getElementById(VIEW_FAB_ID);
+    if (fab) {
+      // 仅原始视图模式显示浮窗，用于切回扩展视图
+      // 注意：必须用具体值 "flex"，写成 "" 会回退到样式表 .dsapi-plus-view-fab 的 display:none，导致浮窗隐形
+      fab.style.display = state.nativeContentVisible ? "flex" : "none";
+    }
+  }
+
+  // [修复] 创建/获取浮窗按钮（直接挂 body，独立于面板，原始视图下可切回扩展视图）
+  function ensureViewFab() {
+    let fab = document.getElementById(VIEW_FAB_ID);
+    if (!fab) {
+      fab = document.createElement("button");
+      fab.id = VIEW_FAB_ID;
+      fab.type = "button";
+      fab.className = "dsapi-plus-view-fab";
+      fab.textContent = "扩展视图";
+      fab.addEventListener("click", () => setNativeContentVisible(false));
+      document.body.appendChild(fab);
+    }
+    return fab;
+  }
+
   function toggleNativeContent(show) {
     const panel = document.getElementById(PANEL_ID);
     if (!panel || !panel.parentNode) return;
@@ -6766,6 +6842,8 @@
     }
     // [修改] 原始视图(show=true)时隐藏脚本面板，脚本视图(show=false)时显示；统一在此处同步，所有调用点自动生效
     document.body.classList.toggle("dsapi-plus-view-native", show);
+    // [修复] 同步头部按钮与浮窗按钮的可见性/状态
+    updateViewControls();
   }
 
   function applyKeyFilter(panel) {
@@ -6862,7 +6940,9 @@
         if (!data || !data.length) { filterList.innerHTML = ""; return; }
         const filter = state.keyFilter || { mode: "all", keys: [] };
         const allKeys = data.map((k) => k.key);
-        filterList.innerHTML = allKeys
+        // 顶部「全选」主复选框：选中即 mode=all，后续新增 Key 自动纳入（持久化）
+        const masterHtml = `<label class="dsapi-plus-filter-all-row"><input type="checkbox" class="dsapi-plus-filter-master"${filter.mode === "all" ? " checked" : ""}><span>全选（含后续新增 Key）</span></label>`;
+        filterList.innerHTML = masterHtml + allKeys
           .map((k) => {
             const checked = filter.mode === "all" || filter.keys.includes(k);
             return `<label><input type="checkbox" value="${escapeHtml(k)}"${checked ? " checked" : ""}><span>${escapeHtml(k)}</span></label>`;
@@ -6900,14 +6980,34 @@
         filterDropdown.style.display = "none";
       });
 
-      // 单个 checkbox
-      filterList.addEventListener("change", () => {
-        const checks = filterList.querySelectorAll("input:checked");
+      // 单个 checkbox / 顶部「全选」主复选框
+      filterList.addEventListener("change", (e) => {
         const allKeys = (state.keyDetailData || []).map((k) => k.key);
+        const master = filterList.querySelector(".dsapi-plus-filter-master");
+        const target = e.target;
+        // 顶部「全选」主复选框：勾选 → 全部 Key 且后续新增自动纳入；取消 → 保留当前勾选项（不再自动纳入新增）
+        if (target.classList && target.classList.contains("dsapi-plus-filter-master")) {
+          if (target.checked) {
+            state.keyFilter = { mode: "all", keys: [] };
+            filterList.querySelectorAll("input:not(.dsapi-plus-filter-master)").forEach((cb) => { cb.checked = true; });
+          } else {
+            const kept = filterList.querySelectorAll("input:not(.dsapi-plus-filter-master):checked");
+            state.keyFilter = { mode: "selected", keys: Array.from(kept).map((cb) => cb.value) };
+          }
+          saveKeyFilter();
+          const sc = state.keyFilter.mode === "all" ? allKeys.length : state.keyFilter.keys.length;
+          filterBtn.textContent = sc < allKeys.length ? `筛选密钥 (${sc})` : "筛选密钥";
+          applyKeyFilter(panel);
+          return;
+        }
+        // 普通 Key 复选框
+        const checks = filterList.querySelectorAll("input:not(.dsapi-plus-filter-master):checked");
         if (checks.length === allKeys.length) {
           state.keyFilter = { mode: "all", keys: [] };
+          if (master) master.checked = true; // 全部勾选时同步点亮「全选」
         } else {
           state.keyFilter = { mode: "selected", keys: Array.from(checks).map((cb) => cb.value) };
+          if (master) master.checked = false;
         }
         saveKeyFilter();
         filterBtn.textContent = checks.length < allKeys.length ? `筛选密钥 (${checks.length})` : "筛选密钥";
@@ -7032,10 +7132,8 @@
     const nativeBtn = panel.querySelector(".dsapi-plus-toggle-native-btn");
     if (nativeBtn) {
       nativeBtn.addEventListener("click", () => {
-        state.nativeContentVisible = !state.nativeContentVisible;
-        nativeBtn.classList.toggle("active", !state.nativeContentVisible); // [修改] active=脚本视图(隐藏原生)，非active=原始视图(显示原生)
-        saveNativeContentVisible();
-        toggleNativeContent(state.nativeContentVisible);
+        // [修复] 统一走 setNativeContentVisible，保证头部按钮与浮窗按钮状态一致
+        setNativeContentVisible(!state.nativeContentVisible);
       });
     }
 
@@ -7240,7 +7338,9 @@
     }
 
     // 每次确保面板时重新应用原生内容显示状态
+    ensureViewFab(); // [修复] 先确保浮窗按钮存在，toggleNativeContent 内部会同步其可见性
     toggleNativeContent(state.nativeContentVisible);
+    updateViewControls(); // [修复] 兜底再同步一次浮窗可见性（原始视图下必须显示切回入口）
     // [修改] 精简视图功能已移除，原始视图时脚本面板隐藏由 toggleNativeContent 内部统一同步 body 类
 
     return panel;
