@@ -2,7 +2,7 @@
 
 > 本项目基于 [DeepSeek Usage+](https://greasyfork.org/zh-CN/scripts/578066-deepseek-usage-%E5%AE%98%E6%96%B9api%E7%94%A8%E9%87%8F%E9%A1%B5%E5%A2%9E%E5%BC%BA%E4%BB%AA%E8%A1%A8%E7%9B%98) 修改扩展，为 DeepSeek API 用量页（platform.deepseek.com/usage）注入完整的数据分析仪表盘，并可在对话页快速跳转。
 
-[![Version](https://img.shields.io/badge/version-1.38.12-blue)]()
+[![Version](https://img.shields.io/badge/version-1.38.13-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-supported-orange)]()
 
@@ -123,10 +123,13 @@
 - **内容格式**：Markdown 文本或截图（自动上传 ImgBB/PicGo 图床，在消息中嵌入图片链接）
 - **ImgBB / PicGo 集成**：截图模式下可选择 ImgBB（国际）或 PicGo（国内推荐）图床，在订阅配置中填写对应 API Key，上传失败自动降级为 Markdown。支持一键测试图床连通性
 - **发送频率**：间隔（自定义分钟数）、每天、每周、每月
-- **内容定制**：可选择包含费用摘要、Token 构成、缓存命中率、Key 明细、Top N Key 等
+- **统计区间**：指定报告统计哪段时间，可选「跟随面板 / 当前月 / 上月 / 近 3 月 / 近 12 月 / 本年至今 / 自定义区间」
+  - 自定义区间的起止各自可选「固定月份」或「当前月（自动滚动）」，例如 `2026年8月 ~ 当前月`
+  - 配置为 `2026年8月 ~ 当前月` 后，9 月统计 8~9 月、10 月统计 8~10 月，跨月自动滚动，无需回改配置
+- **内容定制**：可选择包含费用摘要、当日明细、月度明细，并设置 Top N Key 数量
 - **Key 筛选**：可针对特定 API Key 生成报告
 - **定时触发**：页面打开期间按设定频率自动检查并推送
-- **始终基于今日数据**：若面板当前展示的区间不包含当前月（即不是在看“今天”），发送时刻仍会主动拉取当天最新用量后再生成报告，避免推送到期的历史区间数据
+- **跨月自动更新**：每次发送都按「发送那一刻」重新解析区间，页面长期挂着跨月后也会自动统计到新月；「当日明细」始终展示真实今天，统计区间不含当前月时会自动补拉当月数据
 - **无需后端**：直接使用浏览器 fetch 调用 Webhook URL，飞书/钉钉/企微均支持 CORS
 
 ## 📁 项目结构

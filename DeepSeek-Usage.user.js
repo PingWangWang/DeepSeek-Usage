@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.12
+// @version      1.38.13
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -121,7 +121,6 @@
     subscriptionEditVisible: loadSubscriptionEditVisible(), // 编辑配置面板可见性
     subscriptionLastSent: loadSubscriptionLastSent(), // { subId: ISO时间戳 }
     subscriptionCheckTimer: 0,                    // 定时检查 timer 句柄
-    compactViewVisible: loadCompactViewVisible(), // 精简视图，默认 false
 
     // Key 明细区块 / 每日明细区块 整体显示开关（默认开启，持久化）
     keyDetailVisible: loadKeyDetailVisible(),
@@ -183,16 +182,7 @@
     catch (e) { /* ignore */ }
   }
 
-  function loadCompactViewVisible() {
-    try { return localStorage.getItem("dsapi_plus_compact_view") === "true"; }
-    catch (e) { /* ignore */ }
-    return false;
-  }
-
-  function saveCompactViewVisible() {
-    try { localStorage.setItem("dsapi_plus_compact_view", String(state.compactViewVisible)); }
-    catch (e) { /* ignore */ }
-  }
+  // [修改] 精简视图功能已移除，合并到原始视图按钮的互斥切换
 
   // Key 明细区块 / 每日明细区块整体显示开关（默认开启，持久化）
   function loadKeyDetailVisible() {
@@ -439,9 +429,10 @@
   }
 
   /**
-   * 迁移旧版 contentOptions 字段到新版结构
+   * 迁移旧版订阅配置到新版结构
    * - keyDetail → todayDetail + monthDetail
    * - 废弃 cacheHitRate、modelDetail（不再作为独立开关）
+   * - 补齐统计区间字段 rangeMode/rangeStart/rangeEnd（缺省 follow，保持老订阅既有行为）
    * [修改] 方案二重构：拆分 keyDetail 为当日/月度两个独立开关
    */
   function migrateSubscriptions() {
@@ -449,6 +440,11 @@
     if (!subs || !subs.length) return;
     var changed = false;
     for (var i = 0; i < subs.length; i++) {
+      // [需求] 统计区间：老订阅无该字段，迁移为 follow（跟随面板），行为零变化
+      if (!subs[i].rangeMode) {
+        subs[i].rangeMode = "follow";
+        changed = true;
+      }
       var opts = subs[i].contentOptions;
       if (!opts) continue;
       // 旧版 keyDetail → 拆分为 todayDetail + monthDetail
@@ -657,9 +653,8 @@
         background: rgba(34, 197, 94, 0.08);
         border-style: solid;
       }
-      /* 精简视图：隐藏订阅区和主体内容 */
-      .dsapi-plus-panel.compact .dsapi-plus-subscribe-section,
-      .dsapi-plus-panel.compact .dsapi-plus-body {
+      /* [修改] 原始视图模式：隐藏脚本面板，仅显示平台原生内容 */
+      body.dsapi-plus-view-native #dsapi-plus-panel {
         display: none !important;
       }
       .dsapi-plus-group-model-btn {
@@ -2120,6 +2115,20 @@
     return `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
   }
 
+  // 取「指定时刻」的月份标识 YYYY-M（currentMonthPeriod 的带参版本）
+  // 订阅区间解析必须按「发送那一刻」的时间计算，跨月后才能自动滚动到新月，
+  // 而不是沿用配置保存时或页面加载时的月份。
+  function monthPeriodAt(now) {
+    return `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+  }
+
+  // 月份偏移：在 period 上加减 delta 个月，返回 YYYY-M（delta 可为负）
+  function shiftMonthPeriod(period, delta) {
+    const { year, month } = parsePeriod(period);
+    const total = year * 12 + (month - 1) + delta;
+    return `${Math.floor(total / 12)}-${(total % 12) + 1}`;
+  }
+
   // 判断某月是否为历史月（严格早于当前月），历史月数据不可变，可永久缓存
   function isPastMonth(period) {
     const toNum = (p) => { const { year, month } = parsePeriod(p); return year * 100 + month; };
@@ -2745,6 +2754,20 @@
     return "sub_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
   }
 
+  // ========== 订阅统计区间（rangeMode）==========
+  // 订阅报告的统计区间由 rangeMode 决定；custom 模式再由 rangeStart/rangeEnd 指定起止锚点。
+  // 锚点值可以是具体月份 "YYYY-M"，也可以是 RANGE_ANCHOR_CURRENT（当前月，随时间自动滚动）。
+  const RANGE_ANCHOR_CURRENT = "*current";
+  const RANGE_MODE_LABELS = [
+    ["follow", "跟随面板"],
+    ["currentMonth", "当前月"],
+    ["lastMonth", "上月"],
+    ["last3Months", "近 3 月"],
+    ["last12Months", "近 12 月"],
+    ["ytd", "本年至今"],
+    ["custom", "自定义区间"],
+  ];
+
   function getDefaultSubscription() {
     return {
       id: createSubscriptionId(),
@@ -2762,6 +2785,10 @@
       scheduleMinute: 0,
       scheduleDayOfWeek: 1,
       scheduleDayOfMonth: 1,
+      // [需求] 统计区间：默认 follow（跟随面板），保证老订阅行为零变化
+      rangeMode: "follow",
+      rangeStart: "",   // custom 起点锚点："YYYY-M" 或 RANGE_ANCHOR_CURRENT
+      rangeEnd: "",     // custom 终点锚点："YYYY-M" 或 RANGE_ANCHOR_CURRENT
       contentFormat: "markdown",
       imageHosting: "imgbb",
       imgbbApiKey: "",
@@ -2778,9 +2805,139 @@
     };
   }
 
+  // ========== 订阅功能：统计区间解析 ==========
+
+  // 解析单个区间锚点：
+  // - RANGE_ANCHOR_CURRENT → 当前月（按传入的 now 计算，因此跨月会自动滚动到新月）
+  // - "YYYY-M" → 原样返回
+  // - 其它/空值 → 回退 fallback
+  function resolveRangeAnchor(anchor, now, fallback) {
+    if (anchor === RANGE_ANCHOR_CURRENT) return monthPeriodAt(now);
+    if (/^\d{4}-\d{1,2}$/.test(String(anchor || ""))) return String(anchor);
+    return fallback;
+  }
+
+  // 判断区间 [start, end] 是否包含指定月份
+  function rangeContainsMonth(range, period) {
+    const toNum = (p) => { const { year, month } = parsePeriod(p); return year * 100 + month; };
+    const t = toNum(period);
+    return t >= toNum(range.start) && t <= toNum(range.end);
+  }
+
+  /**
+   * 解析订阅的统计区间，返回 { start, end }（YYYY-M）
+   * 每次发送前用「发送那一刻」的时间重新计算，因此跨月后：
+   * - 「当前月 / 近 N 月 / 本年至今」自动滚动到新月；
+   * - 自定义区间中锚点为「当前月」的一端同样自动滚动（如 2026-8 ~ 当前月）。
+   * @param {object} sub 订阅配置
+   * @param {Date} [now] 基准时刻，默认取当前时间
+   * @returns {{start: string, end: string}}
+   */
+  function resolveSubscriptionRange(sub, now) {
+    const base = now || new Date();
+    const cur = monthPeriodAt(base);
+    switch (sub && sub.rangeMode) {
+      case "currentMonth":
+        return { start: cur, end: cur };
+      case "lastMonth": {
+        const p = shiftMonthPeriod(cur, -1);
+        return { start: p, end: p };
+      }
+      case "last3Months":
+        return { start: shiftMonthPeriod(cur, -2), end: cur };
+      case "last12Months":
+        return { start: shiftMonthPeriod(cur, -11), end: cur };
+      case "ytd":
+        return { start: `${base.getUTCFullYear()}-1`, end: cur };
+      case "custom": {
+        let start = resolveRangeAnchor(sub.rangeStart, base, cur);
+        let end = resolveRangeAnchor(sub.rangeEnd, base, cur);
+        // 起止倒置时自动交换，避免 enumerateMonths 产出空区间
+        const toNum = (p) => { const { year, month } = parsePeriod(p); return year * 100 + month; };
+        if (toNum(start) > toNum(end)) { const t = start; start = end; end = t; }
+        return { start, end };
+      }
+      default: {
+        // follow：跟随主面板区间。保留原有「面板区间非当前月时改用当前月」的行为，
+        // 避免改变老订阅（迁移后默认 follow）的既有表现。
+        const panelData = state.lastPanelData;
+        const panelIsCurrent = !!(panelData && panelData.isCurrentPeriod);
+        if (!panelIsCurrent) return { start: cur, end: cur };
+        const pr = getSelectedRange();
+        return { start: pr.start, end: pr.end };
+      }
+    }
+  }
+
+  /**
+   * 按订阅配置的统计区间准备报告数据（定时发送 / 立即发送 / 预览 三处共用），
+   * 保证预览与实际发送的数据完全一致。
+   * 当日明细始终展示真实今天：统计区间不含当前月时，额外单独拉取当前月数据作为 todayData。
+   * @param {object} sub 订阅配置
+   * @returns {Promise<{range: {start: string, end: string}, reportData: object|null, todayData: object|null}>}
+   */
+  async function prepareSubscriptionReportData(sub) {
+    const range = resolveSubscriptionRange(sub, new Date());
+    let reportData = null;
+    try {
+      reportData = await loadRange(range.start, range.end, null);
+      await fetchKeyDetailFromExport(range.start, range.end);
+    } catch (e) {
+      // 拉取失败不阻断发送：回退到面板数据（buildSubscriptionReportData 会兜底 state.lastPanelData）
+      console.warn("[DeepSeek Usage Panel Plus] 订阅区间数据拉取失败，回退到面板数据", e);
+      reportData = null;
+    }
+    let todayData = null;
+    const cur = monthPeriodAt(new Date());
+    if (!rangeContainsMonth(range, cur)) {
+      try {
+        todayData = await loadRange(cur, cur, null);
+      } catch (e) {
+        console.warn("[DeepSeek Usage Panel Plus] 订阅当日数据拉取失败", e);
+      }
+    }
+    return { range, reportData, todayData };
+  }
+
+  // 从区间数据里取指定日期（YYYY-MM-DD）的 CNY 费用
+  // [注意] 区间聚合后 days 日期为完整 YYYY-MM-DD，必须用完整日期精确匹配，
+  // 否则跨月区间下会把其他月份的同日号误判为目标日期。
+  function dayCostFromPanelData(panelData, dateKey) {
+    let total = 0;
+    for (const costBlock of (panelData.cost || [])) {
+      if (!costBlock || costBlock.currency !== "CNY") continue;
+      for (const dayCost of (costBlock.days || [])) {
+        if (String(dayCost.date || "") === dateKey) total += (dayCost.amount || 0);
+      }
+    }
+    return total;
+  }
+
+  // 估算指定日期的费用：cost 的 days 无该日数据时，用该数据源自身的均价 × 当日 token 估算
+  function estimateDayCost(panelData, dateKey) {
+    const direct = dayCostFromPanelData(panelData, dateKey);
+    if (direct) return direct;
+    const cost = panelData.cost || [];
+    const amount = panelData.amount || {};
+    const totalCost = sumCurrencyAmount(cost, "CNY", "amount");
+    const totalUsage = (amount.aggregate && amount.aggregate.tokens) || 0;
+    if (!totalCost || !totalUsage) return 0;
+    const avgPerToken = totalCost / totalUsage;
+    for (const day of (amount.days || [])) {
+      if (String(day.date || "") === dateKey && day.tokens > 0) return avgPerToken * day.tokens;
+    }
+    return 0;
+  }
+
   // ========== 订阅功能：报告生成 ==========
 
-  function buildSubscriptionReportData(sub, overrideData) {
+  /**
+   * 构造订阅报告数据
+   * @param {object} sub 订阅配置
+   * @param {object} [overrideData] 指定统计区间的面板数据；为空时回退 state.lastPanelData
+   * @param {object} [todayData] 当前月数据；统计区间不含当前月时由调用方传入，用于「当日明细」展示真实今天
+   */
+  function buildSubscriptionReportData(sub, overrideData, todayData) {
     const panelData = overrideData || state.lastPanelData;
     if (!panelData) return null;
     // [修复] 原因：区间重构后解构仍是旧字段 period，而下方 month 标签引用 start/end，
@@ -2811,30 +2968,12 @@
       }
     }
 
-    // 今日费用 — 复用 buildPanelData 逻辑
-    // [修复] 原因：区间聚合后 days 日期为完整 YYYY-MM-DD，跨月区间下旧的正则（仅匹配日号）
-    // 会把其他月份同日号误判为「今天」，改为精确匹配完整日期
+    // 今日费用 — 始终展示「真实今天」
+    // 统计区间不含当前月时，区间数据里没有今天，改由调用方单独传入的 todayData（当前月数据）提供；
+    // 未传入时回退到区间数据本身（区间含当前月的场景），行为与改造前一致。
     const now = new Date();
     const todayDate = now.getUTCFullYear() + "-" + String(now.getUTCMonth() + 1).padStart(2, "0") + "-" + String(now.getUTCDate()).padStart(2, "0");
-    let todayTotalCost = 0;
-    for (const costBlock of cost) {
-      if (costBlock.currency !== "CNY") continue;
-      for (const dayCost of (costBlock.days || [])) {
-        if (String(dayCost.date || "") === todayDate) {
-          todayTotalCost += (dayCost.amount || 0);
-        }
-      }
-    }
-    // 如果 cost API 没有今日数据，用均价估算
-    if (!todayTotalCost && totalCost > 0 && totalUsage > 0) {
-      const avgPerToken = totalCost / totalUsage;
-      for (const day of (amount.days || [])) {
-        if (String(day.date || "") === todayDate && day.tokens > 0) {
-          todayTotalCost = avgPerToken * day.tokens;
-          break;
-        }
-      }
-    }
+    const todayTotalCost = estimateDayCost(todayData || panelData, todayDate);
 
     const avgCost = totalUsage > 0 ? (totalCost / totalUsage * 1000000) : 0;
 
@@ -2985,7 +3124,7 @@
     if (!data) return "暂无数据";
     const lines = [];
     lines.push("# 📊 DeepSeek 用量报告");
-    lines.push(`> 订阅: ${sub.name} ｜ 数据月份: ${data.month} ｜ 生成时间: ${data.generatedAt}\n`);
+    lines.push(`> 订阅: ${sub.name} ｜ 统计区间: ${data.month} ｜ 生成时间: ${data.generatedAt}\n`);
 
     if (sub.contentOptions.summary) {
       lines.push("## 💰 费用摘要");
@@ -3029,19 +3168,26 @@
 
   // ========== 订阅功能：发送 ==========
 
-  async function sendSubscriptionReport(sub, showPreview, overrideData) {
+  /**
+   * 发送订阅报告（永不抛异常，失败以 { success:false, error } 返回）
+   * @param {object} sub 订阅配置
+   * @param {boolean} [showPreview] 是否仅预览
+   * @param {object} [overrideData] 指定统计区间的面板数据
+   * @param {object} [todayData] 当前月数据，用于「当日明细」展示真实今天
+   */
+  async function sendSubscriptionReport(sub, showPreview, overrideData, todayData) {
     // [修复] 原因：内部任何异常（如数据构建报错）原样抛出会让「立即发送」按钮永远停在「发送中」，
     // 改为捕获后返回失败结果，由调用方展示诊断信息
     try {
-      return await _sendSubscriptionReportInner(sub, showPreview, overrideData);
+      return await _sendSubscriptionReportInner(sub, showPreview, overrideData, todayData);
     } catch (err) {
       console.error("[DeepSeek Usage Panel Plus] 发送订阅报告异常:", err);
       return { success: false, error: (err && err.message) ? err.message : String(err) };
     }
   }
 
-  async function _sendSubscriptionReportInner(sub, showPreview, overrideData) {
-    const reportData = buildSubscriptionReportData(sub, overrideData);
+  async function _sendSubscriptionReportInner(sub, showPreview, overrideData, todayData) {
+    const reportData = buildSubscriptionReportData(sub, overrideData, todayData);
     if (!reportData) return { success: false, error: "暂无数据，请先刷新数据" };
 
     let markdown;
@@ -3291,7 +3437,7 @@
 
     // 构建报告 HTML（与 Markdown 内容对应）
     let html = `<h1 style="font-size: 20px; margin: 0 0 4px;">📊 DeepSeek 用量报告</h1>`;
-    html += `<p style="color: ${c.sub}; font-size: 12px; margin: 0 0 16px;">订阅: ${escapeHtml(sub.name)} ｜ 数据月份: ${reportData.month} ｜ 生成时间: ${reportData.generatedAt}</p>`;
+    html += `<p style="color: ${c.sub}; font-size: 12px; margin: 0 0 16px;">订阅: ${escapeHtml(sub.name)} ｜ 统计区间: ${reportData.month} ｜ 生成时间: ${reportData.generatedAt}</p>`;
 
     if (sub.contentOptions.summary) {
       html += '<h2 style="font-size: 15px; margin: 16px 0 8px;">💰 费用摘要</h2>';
@@ -3790,6 +3936,28 @@
     }
     html += `</div></div></div>`;
 
+    // 统计区间（发送的数据统计范围）
+    const rangeMode = s.rangeMode || "follow";
+    const curPeriod = currentMonthPeriod();
+    const customDisplay = rangeMode === "custom" ? "" : "display:none;";
+    html += `<div class="dsapi-plus-subscribe-form-row">
+      <div class="dsapi-plus-subscribe-form-label">统计区间</div>
+      <div class="dsapi-plus-subscribe-form-control">
+        <select id="sub-form-range-mode">
+          ${RANGE_MODE_LABELS.map(([v, label]) => `<option value="${v}" ${rangeMode === v ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+        <span id="sub-form-range-custom-group" style="${customDisplay}">
+          <label style="font-size:12px;color:var(--dsapi-plus-muted);display:inline-flex;align-items:center;gap:4px;margin-left:6px;">起
+            <select id="sub-form-range-start" style="height:28px;min-width:88px;">${buildRangeAnchorOptionsHtml(s.rangeStart || curPeriod)}</select>
+          </label>
+          <label style="font-size:12px;color:var(--dsapi-plus-muted);display:inline-flex;align-items:center;gap:4px;">止
+            <select id="sub-form-range-end" style="height:28px;min-width:88px;">${buildRangeAnchorOptionsHtml(s.rangeEnd || RANGE_ANCHOR_CURRENT)}</select>
+          </label>
+        </span>
+        <div style="font-size:10px;color:var(--dsapi-plus-muted);margin-top:2px;">自定义区间中选「当前月」的一端会随时间自动滚动，跨月后无需修改配置</div>
+      </div>
+    </div>`;
+
     // 内容定制
     html += `<div class="dsapi-plus-subscribe-form-row">
       <div class="dsapi-plus-subscribe-form-label">内容定制</div>
@@ -3822,6 +3990,16 @@
 
     html += `</div>`;
     return html;
+  }
+
+  // 生成区间锚点下拉的 option：可选具体月份（当前月置顶倒序），末项为「当前月（自动滚动）」
+  function buildRangeAnchorOptionsHtml(selected) {
+    const opts = buildMonthSummaryOptionsList().map((period) => {
+      const { year, month } = parsePeriod(period);
+      return `<option value="${escapeHtml(period)}"${period === selected ? " selected" : ""}>${year}年${month}月</option>`;
+    });
+    opts.push(`<option value="${RANGE_ANCHOR_CURRENT}"${selected === RANGE_ANCHOR_CURRENT ? " selected" : ""}>当前月（自动滚动）</option>`);
+    return opts.join("");
   }
 
   function getAvailableKeyNames() {
@@ -3916,14 +4094,16 @@
 
     // 预览
     panel.querySelectorAll("[data-action='preview']").forEach(function (previewBtn) {
-      previewBtn.addEventListener("click", function () {
+      previewBtn.addEventListener("click", async function () {
         var idx = parseInt(previewBtn.dataset.index, 10);
         var sub = state.subscriptions[idx];
         if (!sub) return;
         // [修复] 原因：构建报告数据抛异常时预览按钮无任何响应，改为捕获并提示
         var reportData;
         try {
-          reportData = buildSubscriptionReportData(sub);
+          // [需求] 与定时发送共用同一套区间解析，保证「预览 = 实际发送」
+          const prepared = await prepareSubscriptionReportData(sub);
+          reportData = buildSubscriptionReportData(sub, prepared.reportData, prepared.todayData);
         } catch (err) {
           console.error("[DeepSeek Usage Panel Plus] 生成预览失败:", err);
           alert("生成预览失败：" + ((err && err.message) ? err.message : String(err)));
@@ -3959,7 +4139,9 @@
         if (!sub) return;
         btn.disabled = true;
         btn.textContent = "发送中…";
-        const result = await sendSubscriptionReport(sub);
+        // [需求] 按订阅配置的统计区间拉取数据，与定时发送路径完全一致
+        const prepared = await prepareSubscriptionReportData(sub);
+        const result = await sendSubscriptionReport(sub, undefined, prepared.reportData, prepared.todayData);
         // 更新状态
         sub.lastSentAt = new Date().toISOString();
         sub.lastSentStatus = result.success ? "success" : "error";
@@ -4125,6 +4307,9 @@
       scheduleMinute: stype !== "interval" ? (parseInt(getName("#sub-form-minute"), 10) || 0) : 0,
       scheduleDayOfWeek: stype === "weekly" ? (parseInt(getName("#sub-form-weekday"), 10) || 1) : 1,
       scheduleDayOfMonth: stype === "monthly" ? (parseInt(getName("#sub-form-monthday"), 10) || 1) : 1,
+      rangeMode: getName("#sub-form-range-mode") || "follow",
+      rangeStart: getName("#sub-form-range-start") || "",
+      rangeEnd: getName("#sub-form-range-end") || "",
       contentOptions: {
         summary: contentOpts.summary !== false,
         todayDetail: contentOpts.todayDetail !== false,
@@ -4247,6 +4432,14 @@
         if (webhookGroup) webhookGroup.style.display = methodSelect.value === "webhook" ? "" : "none";
       });
     }
+    // 统计区间模式切换：仅「自定义区间」显示起止下拉
+    var rangeModeSelect = formEl.querySelector("#sub-form-range-mode");
+    if (rangeModeSelect) {
+      rangeModeSelect.addEventListener("change", function() {
+        var customGroup = formEl.querySelector("#sub-form-range-custom-group");
+        if (customGroup) customGroup.style.display = rangeModeSelect.value === "custom" ? "" : "none";
+      });
+    }
     // 频率类型切换
     var stypeSelect = formEl.querySelector("#sub-form-stype");
     if (stypeSelect) {
@@ -4350,27 +4543,11 @@
       const lastSent = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
       if (shouldSendNow(sub, now, lastSent)) {
         console.log("[DeepSeek Usage Panel Plus] 订阅检查触发:", sub.name, "时间:", now.toLocaleTimeString());
-        // 需求 4：面板展示区间不是当天（区间终点 != 当前月）时，发送前主动拉取今日最新数据覆盖，
-        // 确保订阅报告始终基于今天实际用量；面板即当天时仅刷新 Key 明细保证最新。
-        let reportOverride = null;
-        const panelData = state.lastPanelData;
-        const panelIsToday = !!(panelData && panelData.isCurrentPeriod);
-        if (!panelIsToday) {
-          try {
-            const cur = currentMonthPeriod();
-            reportOverride = await loadRange(cur, cur, null);
-            await fetchKeyDetailFromExport(cur);
-          } catch (e) {
-            console.warn("[DeepSeek Usage Panel Plus] 订阅发送前拉取今日数据失败，回退到面板数据", e);
-          }
-        } else {
-          // 面板已含当前月：按面板区间整段刷新 Key 明细（历史月走缓存，仅当前月按 TTL 可能重拉）
-          try {
-            const rg = getSelectedRange();
-            await fetchKeyDetailFromExport(rg.start, rg.end);
-          } catch (e) { /* 刷新失败不影响发送 */ }
-        }
-        sendSubscriptionReport(sub, undefined, reportOverride).then(result => {
+        // [需求] 统计区间：按订阅配置的 rangeMode 解析区间并独立拉取数据，不再依赖面板当前显示。
+        // 每次发送都按「当前时刻」重新解析，因此跨月后（如配置时是 6 月、发送时已 7 月）
+        // 即使页面从未刷新，区间与当日数据也会自动滚动到新月。
+        const prepared = await prepareSubscriptionReportData(sub);
+        sendSubscriptionReport(sub, undefined, prepared.reportData, prepared.todayData).then(result => {
           if (result.success) {
             sub.lastSentAt = new Date().toISOString();
             sub.lastSentStatus = "success";
@@ -4492,8 +4669,7 @@
               ${AUTO_REFRESH_INTERVALS.map(i => `<button type="button" data-value="${i.value}"${state.autoRefreshInterval === i.value ? ' class="active"' : ''}>${i.label}</button>`).join('')}
             </div>
           </div>
-          <button type="button" class="dsapi-plus-toggle-native-btn${state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原始视图</button>
-          <button type="button" class="dsapi-plus-toggle-compact-btn${state.compactViewVisible ? ' active' : ''}" style="margin-left:4px;">精简视图</button>
+          <button type="button" class="dsapi-plus-toggle-native-btn${!state.nativeContentVisible ? ' active' : ''}" style="margin-left:4px;">原始视图</button>
           <button type="button" class="dsapi-plus-clear-cache-btn" style="margin-left:4px;">清除缓存</button>
           <button type="button" class="dsapi-plus-theme-btn${state.themeMode !== 'auto' ? ' active' : ''}" style="margin-left:4px;" title="${themeMeta.title}">${themeMeta.icon} ${themeMeta.text}</button>
         </div>
@@ -6588,6 +6764,8 @@
     for (let i = 0; i < idx; i++) {
       siblings[i].style.display = show ? "" : "none";
     }
+    // [修改] 原始视图(show=true)时隐藏脚本面板，脚本视图(show=false)时显示；统一在此处同步，所有调用点自动生效
+    document.body.classList.toggle("dsapi-plus-view-native", show);
   }
 
   function applyKeyFilter(panel) {
@@ -6855,26 +7033,13 @@
     if (nativeBtn) {
       nativeBtn.addEventListener("click", () => {
         state.nativeContentVisible = !state.nativeContentVisible;
-        nativeBtn.classList.toggle("active", state.nativeContentVisible);
+        nativeBtn.classList.toggle("active", !state.nativeContentVisible); // [修改] active=脚本视图(隐藏原生)，非active=原始视图(显示原生)
         saveNativeContentVisible();
         toggleNativeContent(state.nativeContentVisible);
       });
     }
 
-    // 精简视图切换
-    const compactBtn = panel.querySelector(".dsapi-plus-toggle-compact-btn");
-    if (compactBtn) {
-      compactBtn.addEventListener("click", () => {
-        state.compactViewVisible = !state.compactViewVisible;
-        saveCompactViewVisible();
-        compactBtn.classList.toggle("active", state.compactViewVisible);
-        panel.classList.toggle("compact", state.compactViewVisible);
-      });
-      // 初始化恢复状态
-      if (state.compactViewVisible) {
-        panel.classList.add("compact");
-      }
-    }
+    // [修改] 精简视图按钮已移除，功能合并到原始视图按钮的互斥切换
 
     // 主题模式切换（跟随站点 → 浅色 → 深色 循环，作用于整个用量页面）
     const themeBtn = panel.querySelector(".dsapi-plus-theme-btn");
@@ -7076,8 +7241,7 @@
 
     // 每次确保面板时重新应用原生内容显示状态
     toggleNativeContent(state.nativeContentVisible);
-    // 每次确保面板时重新应用精简视图状态
-    if (state.compactViewVisible && panel) panel.classList.add("compact");
+    // [修改] 精简视图功能已移除，原始视图时脚本面板隐藏由 toggleNativeContent 内部统一同步 body 类
 
     return panel;
   }
