@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.15
+// @version      1.38.16
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -86,6 +86,7 @@
     keyDetailLoading: false,   // 正在加载中
     keyDetailError: "",        // 加载错误信息
     keyDetailUpdateTime: "",   // 上次成功导入的时间
+    keyDetailSchemaWarning: "", // 导出表头疑似变更时的提示（例如 Key 名与模型名完全重合）
     keyUnitPrices: {},         // { model: { promptMiss: 单价, promptHit: 单价, response: 单价 } }
     keyDetailAbortController: null, // 正在进行的 Key 明细导出请求（切月/连续刷新时用于取消旧请求，避免乱序覆盖）
     keyDetailReqId: 0,                 // Key 明细请求自增序号（用于丢弃已被更新的旧请求结果）
@@ -5494,13 +5495,13 @@
       const meta = keySection.querySelector(".dsapi-plus-section-meta");
       // 如果已有导入的 Key 数据，不覆盖内容，只更新 meta
       if (state.keyDetailData && state.keyDetailData.length) {
-        if (meta) meta.textContent = `${state.keyDetailData.length} 个活跃 Key`;
+        setKeyDetailMetaText(meta, `${state.keyDetailData.length} 个活跃 Key`);
       } else if (state.keyDetailLoading) {
         if (meta) meta.textContent = "正在获取 Key 明细…";
       } else if (state.keyDetailError) {
         if (meta) meta.textContent = "导入失败";
       } else {
-        if (meta) meta.textContent = sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量";
+        setKeyDetailMetaText(meta, sortedKeys.length ? `${sortedKeys.length} 个活跃 Key` : "暂无 Key 用量");
         const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
         if (tableWrap) {
           if (sortedKeys.length) {
@@ -6327,6 +6328,36 @@
     return { headers, rows };
   }
 
+  // [修改] 原因：2026-10 官方导出 CSV 新增 name 列（取值即模型名）且排在 api_key_name 之前，
+  // 旧的 findIndex 正则含裸 name、又从表头左侧开始找，于是"Key 名称"被解析成模型名，
+  // 整个 Key 维度静默塌缩成模型维度（费用总额仍然对得上，极难发现）。
+  // 定位规则改为：精确列名（按优先级）优先，其次正则按优先级逐个尝试，最后才按表头顺序兜底。
+  /**
+   * 按"精确列名 → 正则优先级"定位 CSV 列下标，避免表头顺序决定列语义
+   * 参数:
+   *   headers: string[]，CSV 原始表头
+   *   exactNames: string[]，精确列名候选，按优先级排列（忽略大小写与首尾空格）
+   *   patterns: RegExp[]，精确候选全部未命中时，按优先级依次尝试的正则（针对已小写的列名）
+   *   excludeNames: string[]，正则阶段永不参与匹配的列名（精确候选不受此限制）
+   * 返回:
+   *   number，命中的列下标；全部未命中返回 -1
+   */
+  function resolveColumnIndex(headers, exactNames, patterns, excludeNames) {
+    const lowered = (headers || []).map((h) => String(h || "").trim().toLowerCase());
+    const excluded = new Set((excludeNames || []).map((n) => String(n).toLowerCase()));
+    for (const name of (exactNames || [])) {
+      const hit = lowered.indexOf(String(name).toLowerCase());
+      if (hit >= 0) return hit;
+    }
+    for (const pattern of (patterns || [])) {
+      for (let i = 0; i < lowered.length; i += 1) {
+        if (excluded.has(lowered[i])) continue;
+        if (pattern.test(lowered[i])) return i;
+      }
+    }
+    return -1;
+  }
+
   // 从导出接口获取 Key 级用量数据
   // 从导出接口获取 Key 级用量数据（按主面板起止区间跨月聚合，需求 1）
   // 参数:
@@ -6341,6 +6372,7 @@
 
     state.keyDetailLoading = true;
     state.keyDetailError = "";
+    state.keyDetailSchemaWarning = ""; // 每次重新导入先清空上次的表头告警
     // 取消上一次未完成的导出请求，避免快速切月/连续刷新时乱序覆盖
     if (state.keyDetailAbortController) { try { state.keyDetailAbortController.abort(); } catch (e) { /* ignore */ } }
     const controller = new AbortController();
@@ -6386,15 +6418,28 @@
         okMonths += 1;
 
         // 5. 根据该月 CSV 表头定位关键列
-        const idx = (pattern) => res.headers.findIndex((h) => pattern.test(String(h).toLowerCase()));
-        const colName = idx(/api_key_name|key_name|name/i);   // Key 名称列
-        const colType = idx(/^type$/i);                        // 类型列
-        const colPrice = idx(/^price$/i);                      // 单价列
-        const colAmount = idx(/^amount$/i);                    // 用量列
-        const colModel = idx(/model/i);                        // 模型列
-        const colDate = idx(/utc_date|date/i);                 // 日期列
+        // [修改] 原因：Key 名称列只认显式列名（api_key_name 等），正则阶段也排除 name / api_key / model，
+        // 防止 2026-10 新增的 name 列（模型名）或脱敏密钥列（sk-***）被当成 Key 名称
+        const colName = resolveColumnIndex(
+          res.headers,
+          ["api_key_name", "key_name", "apikey_name", "api_key_alias"],
+          [/^api_key_name$/, /^key_name$/, /^api_key_?alias$/, /^key_?alias$/],
+          ["name", "api_key", "apikey", "model", "model_name"]
+        );
+        const colType = resolveColumnIndex(res.headers, ["type"], [], []);      // 类型列
+        const colPrice = resolveColumnIndex(res.headers, ["price"], [], []);    // 单价列
+        const colAmount = resolveColumnIndex(res.headers, ["amount"], [], []);  // 用量列
+        // [修改] 原因：模型列精确锚定 model / model_name，避免宽松正则在未来表头里误命中
+        const colModel = resolveColumnIndex(res.headers, ["model", "model_name"], [/^model$/, /^model_name$/], ["name"]);
+        const colDate = resolveColumnIndex(res.headers, ["utc_date", "date"], [/^utc_date$/, /_date$/, /^date$/], []);
         if (colName < 0 || colType < 0 || colAmount < 0) {
-          if (mi === 0) throw new Error(`CSV 缺少必要列，请检查表头：${res.headers.join(" | ")}`);
+          // [修改] 原因：官方再改表头时给出可定位的报错，避免又一次静默按模型聚合出"假 Key 明细"
+          const headerText = res.headers.join(" | ");
+          const hasBareName = res.headers.some((h) => String(h || "").trim().toLowerCase() === "name");
+          const hint = hasBareName
+            ? "（表头含 name 列但没有 api_key_name，疑似官方导出格式变更）"
+            : "";
+          if (mi === 0) throw new Error(`CSV 缺少必要列${hint}，请检查表头：${headerText}`);
           continue;
         }
         const { year, month } = parsePeriod(period);
@@ -6495,6 +6540,12 @@
       }
 
       const sorted = Object.values(keyMap).sort((a, b) => b.totalCost - a.totalCost || b.requestCount - a.requestCount);
+
+      // [修改] 原因：列定位若再被官方表头变化带偏，费用仍会对上而维度静默塌缩（本项目 2026-10 的真实故障）。
+      // 这里用"每个 Key 的名字都等于它自己的模型名"做兜底识别：仅提示，不阻断展示，避免用户继续误读。
+      state.keyDetailSchemaWarning = (sorted.length > 0 && sorted.every((item) => Object.keys(item.byModel || {}).includes(item.key)))
+        ? "Key 名称与模型名一致，疑似官方导出表头变更，Key 维度可能已被聚合到模型上"
+        : "";
 
       // 横轴补全：数据日 ∪ 区间内每月 1 号 → 当天/月末（历史月为月末，当前月到今日，需求 2 不外扩）
       for (const period of periods) {
@@ -6598,6 +6649,23 @@
     updateKeyDetailUI();
   }
 
+  // [修改] 原因：Key 明细标题行在渲染、刷新、筛选、模型分组等多处被重写；
+  // 表头疑似变更的告警必须统一附加，否则任何一次筛选都会把告警清掉（用户会重新误读成"Key 正常"）。
+  /**
+   * 写入 Key 明细标题行文案，并按需附加表头告警
+   * 参数:
+   *   meta: HTMLElement|null，标题行元素，为空时静默跳过
+   *   text: string，基础文案（如 "7 个活跃 Key"）
+   * 返回:
+   *   void
+   */
+  function setKeyDetailMetaText(meta, text) {
+    if (!meta) return;
+    meta.textContent = state.keyDetailSchemaWarning ? `${text} ⚠ 维度存疑` : text;
+    // 完整说明较长，放 title 里避免挤占标题行
+    meta.title = state.keyDetailSchemaWarning || "";
+  }
+
   // 更新 UI 中的 Key 明细区域
   function updateKeyDetailUI() {
     const panel = document.getElementById(PANEL_ID);
@@ -6616,7 +6684,9 @@
       } else if (state.keyDetailData && state.keyDetailData.length) {
         const activeData = getKeyDetailData();
         const itemCount = state.groupByModel ? countModels() : activeData.length;
-        meta.textContent = state.groupByModel ? `${itemCount} 个活跃模型` : `${itemCount} 个活跃 Key`;
+        // [修改] 原因：标题行在渲染 / 刷新 / 筛选等多处被重写，统一走 setKeyDetailMetaText，
+        // 表头告警才不会筛一次就丢（丢了用户又会把模型名当成正常 Key）
+        setKeyDetailMetaText(meta, state.groupByModel ? `${itemCount} 个活跃模型` : `${itemCount} 个活跃 Key`);
       } else {
         meta.textContent = "暂无 Key 用量";
       }
@@ -6852,7 +6922,7 @@
     // 更新表格
     const filtered = getFilteredKeyData();
     const meta = keySection.querySelector(".dsapi-plus-section-meta");
-    if (meta && filtered) meta.textContent = `${filtered.length} 个活跃 Key`;
+    if (meta && filtered) setKeyDetailMetaText(meta, `${filtered.length} 个活跃 Key`);
     const tableWrap = keySection.querySelector(".dsapi-plus-table-wrap");
     if (tableWrap && filtered && filtered.length) {
       tableWrap.outerHTML = renderKeyTableForExport(filtered, state.keyUnitPrices, state.keyTableVisible, state.groupByModel);
@@ -6918,7 +6988,7 @@
           const meta = keySection.querySelector(".dsapi-plus-section-meta");
           if (meta && activeData) {
             const itemCount = state.groupByModel ? countModels() : activeData.length;
-            meta.textContent = state.groupByModel ? `${itemCount} 个活跃模型` : `${itemCount} 个活跃 Key`;
+            setKeyDetailMetaText(meta, state.groupByModel ? `${itemCount} 个活跃模型` : `${itemCount} 个活跃 Key`);
           }
           initOrUpdateKeyCostChart(keySection);
         }
