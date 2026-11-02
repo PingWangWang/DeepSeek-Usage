@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.16
+// @version      1.38.18
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -16,6 +16,7 @@
 // @supportURL   https://github.com/PingWangWang/DeepSeek-Usage/issues
 // @connect      oapi.dingtalk.com
 // @connect      www.picgo.net
+// @connect      raw.githubusercontent.com
 // @license      MIT
 // ==/UserScript==
 
@@ -3734,6 +3735,72 @@
     return panel;
   }
 
+  // ========== 中国法定工作日判定（订阅「工作日」发送用）==========
+  // 数据源：内置 2026 兜底表（国务院 2025-11-04 发布）+ 运行时经 GM_xmlhttpRequest
+  // 从 holiday-cn 拉取当年/次年最新数据并合并；拉取失败或离线时回退内置表。
+  // 判定：表中 isOffDay=true → 休息日（不发）；isOffDay=false → 补班工作日（发）；
+  //       表外日期按自然星期：周一~周五发，周六周日不发。
+  const CN_HOLIDAY_DATA = {
+    "2026": {
+      off: [
+        "2026-01-01", "2026-01-02", "2026-01-03",
+        "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", "2026-02-21", "2026-02-22", "2026-02-23",
+        "2026-04-04", "2026-04-05", "2026-04-06",
+        "2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05",
+        "2026-06-19", "2026-06-20", "2026-06-21",
+        "2026-09-25", "2026-09-26", "2026-09-27",
+        "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07"
+      ],
+      work: [
+        "2026-01-04", "2026-02-14", "2026-02-28", "2026-05-09", "2026-09-20", "2026-10-10"
+      ]
+    }
+  };
+  var cnWorkdayMap = {}; // "YYYY-MM-DD" -> true(休息) / false(补班)
+  (function _buildCnWorkdayMap() {
+    for (var _y in CN_HOLIDAY_DATA) {
+      var _yd = CN_HOLIDAY_DATA[_y];
+      if (_yd.off) _yd.off.forEach(function (d) { cnWorkdayMap[d] = true; });
+      if (_yd.work) _yd.work.forEach(function (d) { cnWorkdayMap[d] = false; });
+    }
+  })();
+
+  function isChineseWorkday(date) {
+    var _key = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+    if (Object.prototype.hasOwnProperty.call(cnWorkdayMap, _key)) {
+      return cnWorkdayMap[_key] === false; // false = 补班工作日
+    }
+    var _dow = date.getDay();
+    return _dow >= 1 && _dow <= 5; // 周一~周五
+  }
+
+  var _cnHolidayRefreshed = false;
+  function refreshCnHolidayData() {
+    if (_cnHolidayRefreshed) return;
+    _cnHolidayRefreshed = true;
+    var _years = [new Date().getFullYear(), new Date().getFullYear() + 1];
+    _years.forEach(function (_y) {
+      try {
+        GM_xmlhttpRequest({
+          method: "GET",
+          url: "https://raw.githubusercontent.com/NateScarlet/holiday-cn/master/" + _y + ".json",
+          timeout: 8000,
+          onload: function (resp) {
+            try {
+              if (resp.status !== 200 || !resp.responseText) return;
+              var _j = JSON.parse(resp.responseText);
+              if (_j && _j.days && _j.days.length) {
+                _j.days.forEach(function (_d) { cnWorkdayMap[_d.date] = _d.isOffDay; });
+              }
+            } catch (e) {}
+          },
+          onerror: function () {},
+          ontimeout: function () {}
+        });
+      } catch (e) {}
+    });
+  }
+
   function getNextSendTime(sub) {
     var now = new Date();
     switch (sub.scheduleType) {
@@ -3769,6 +3836,18 @@
         var next = new Date(now.getFullYear(), now.getMonth(), dom, sub.scheduleHour || 0, sub.scheduleMinute || 0, 0);
         if (next <= now) next.setMonth(next.getMonth() + 1);
         return next;
+      }
+      case "workday": {
+        var _wh = sub.scheduleHour || 0, _wm = sub.scheduleMinute || 0;
+        var _cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), _wh, _wm, 0);
+        if (_cand <= now) {
+          var _lw = state.subscriptionLastSent[sub.id] ? new Date(state.subscriptionLastSent[sub.id]) : null;
+          if (isChineseWorkday(now) && (!_lw || _lw.toDateString() !== now.toDateString())) return now; // 待发送
+          _cand.setDate(_cand.getDate() + 1);
+          while (!isChineseWorkday(_cand)) _cand.setDate(_cand.getDate() + 1);
+          _cand.setHours(_wh, _wm, 0, 0);
+        }
+        return _cand;
       }
       default: return null;
     }
@@ -3813,6 +3892,8 @@
         return `每周${days[sub.scheduleDayOfWeek]} ${String(sub.scheduleHour).padStart(2,"0")}:${String(sub.scheduleMinute).padStart(2,"0")}`;
       case "monthly":
         return `每月${sub.scheduleDayOfMonth}日 ${String(sub.scheduleHour).padStart(2,"0")}:${String(sub.scheduleMinute).padStart(2,"0")}`;
+      case "workday":
+        return `工作日 ${String(sub.scheduleHour).padStart(2,"0")}:${String(sub.scheduleMinute).padStart(2,"0")}`;
       default:
         return "未配置";
     }
@@ -3952,7 +4033,7 @@
 
     if (s.scheduleType === "interval") {
       html += `<select id="sub-form-stype">
-        <option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option>
+        <option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="workday">工作日</option>
       </select>
       <input type="number" id="sub-form-interval-val" value="${Math.round(s.scheduleInterval / 60000)}" min="1" style="width:60px;"> 分钟`;
     } else {
@@ -3962,6 +4043,7 @@
         <option value="daily" ${st === "daily" ? "selected" : ""}>每天</option>
         <option value="weekly" ${st === "weekly" ? "selected" : ""}>每周</option>
         <option value="monthly" ${st === "monthly" ? "selected" : ""}>每月</option>
+        <option value="workday" ${st === "workday" ? "selected" : ""}>工作日</option>
       </select>`;
       if (st === "weekly") {
         html += `<select id="sub-form-weekday">
@@ -4301,10 +4383,10 @@
       var panelId = '${PANEL_ID}';
       var schedHtml = "";
       if (st === "interval") {
-        schedHtml = `<select id="sub-form-stype" onchange="var p=document.getElementById('${PANEL_ID}');if(p&&p._subStypeChange)p._subStypeChange(this);"><option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select>
+        schedHtml = `<select id="sub-form-stype" onchange="var p=document.getElementById('${PANEL_ID}');if(p&&p._subStypeChange)p._subStypeChange(this);"><option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="workday">工作日</option></select>
           <input type="number" id="sub-form-interval-val" value="${currentInterval}" min="1" style="width:60px;"> 分钟`;
       } else {
-        schedHtml = `<select id="sub-form-stype" onchange="var p=document.getElementById('${PANEL_ID}');if(p&&p._subStypeChange)p._subStypeChange(this);"><option value="interval">间隔</option><option value="daily" ${st==="daily"?"selected":""}>每天</option><option value="weekly" ${st==="weekly"?"selected":""}>每周</option><option value="monthly" ${st==="monthly"?"selected":""}>每月</option></select>`;
+        schedHtml = `<select id="sub-form-stype" onchange="var p=document.getElementById('${PANEL_ID}');if(p&&p._subStypeChange)p._subStypeChange(this);"><option value="interval">间隔</option><option value="daily" ${st==="daily"?"selected":""}>每天</option><option value="weekly" ${st==="weekly"?"selected":""}>每周</option><option value="monthly" ${st==="monthly"?"selected":""}>每月</option><option value="workday" ${st==="workday"?"selected":""}>工作日</option></select>`;
         if (st === "weekly") {
           schedHtml += `<select id="sub-form-weekday">${["周日","周一","周二","周三","周四","周五","周六"].map((d,i)=>"<option value=\""+i+"\""+(currentWeekday===i?" selected":"")+">"+d+"</option>").join("")}</select>`;
         }
@@ -4495,10 +4577,10 @@
         Object.assign(formEl.dataset, { savedHour: currentHour, savedMinute: currentMinute, savedInterval: currentInterval, savedWeekday: currentWeekday, savedMonthday: currentMonthday });
         var schedHtml = "";
         if (st === "interval") {
-          schedHtml = `<select id="sub-form-stype"><option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select>
+          schedHtml = `<select id="sub-form-stype"><option value="interval" selected>间隔</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="workday">工作日</option></select>
             <input type="number" id="sub-form-interval-val" value="${currentInterval}" min="1" style="width:60px;"> 分钟`;
         } else {
-          schedHtml = `<select id="sub-form-stype"><option value="interval">间隔</option><option value="daily" ${st==="daily"?"selected":""}>每天</option><option value="weekly" ${st==="weekly"?"selected":""}>每周</option><option value="monthly" ${st==="monthly"?"selected":""}>每月</option></select>`;
+          schedHtml = `<select id="sub-form-stype"><option value="interval">间隔</option><option value="daily" ${st==="daily"?"selected":""}>每天</option><option value="weekly" ${st==="weekly"?"selected":""}>每周</option><option value="monthly" ${st==="monthly"?"selected":""}>每月</option><option value="workday" ${st==="workday"?"selected":""}>工作日</option></select>`;
           if (st === "weekly") {
             schedHtml += `<select id="sub-form-weekday">${["周日","周一","周二","周三","周四","周五","周六"].map((d,i)=>`<option value="${i}" ${currentWeekday===i?"selected":""}>${d}</option>`).join("")}</select>`;
           }
@@ -4631,6 +4713,10 @@
       case "monthly":
         if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
         return now.getDate() === sub.scheduleDayOfMonth && nowMinHour >= subMinHour;
+      case "workday":
+        if (!isChineseWorkday(now)) return false;
+        if (lastSent && lastSent.toDateString() === now.toDateString()) return false;
+        return nowMinHour >= subMinHour;
       default:
         return false;
     }
@@ -7720,6 +7806,7 @@
     startObservers();
     startThemeObserver();
     startSubscriptionCheckTimer();
+    refreshCnHolidayData(); // [新增] 启动时拉取当年/次年法定工作日数据（兜底内置 2026 表）
     scheduleRefresh(true);
   }
 
