@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.18
+// @version      1.38.19
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -2106,6 +2106,30 @@
 
     const now = new Date();
     return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+  }
+
+  /**
+   * 将用量导出 CSV 的日期值统一规范为 YYYY-MM-DD。
+   * 参数:
+   *   raw: string，CSV 原始日期值
+   *   year: number，所属年份，用于补全月日
+   *   month: number，所属月份，用于补全纯日号
+   * 返回:
+   *   string|null，规范日期；无法识别时返回 null
+   */
+  function normalizeExportDate(raw, year, month) {
+    const pad = (value) => String(value).padStart(2, "0");
+    const value = String(raw || "").trim();
+    let matched = value.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (matched) return `${matched[1]}-${pad(matched[2])}-${pad(matched[3])}`;
+    // [新增] 原因：2026-11 官方导出将 utc_date 改为 YYYYMMDD，仍统一成跨月可比较的日期键
+    matched = value.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (matched) return `${matched[1]}-${matched[2]}-${matched[3]}`;
+    matched = value.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+    if (matched) return `${year}-${pad(matched[1])}-${pad(matched[2])}`;
+    matched = value.match(/^(\d{1,2})$/);
+    if (matched) return `${year}-${pad(month)}-${pad(matched[1])}`;
+    return null;
   }
 
   // 跨月聚合并发限流池：同时最多在飞 MAX_CONCURRENCY 条请求，其余排队。
@@ -6470,18 +6494,6 @@
     const pad = (n) => String(n).padStart(2, "0");
     const now = new Date();
     const todayKey = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`;
-    // 导出 CSV 的日期列统一规范为 YYYY-MM-DD（兼容完整日期 / MM-DD / 纯日号），保证跨月日期不冲突
-    const normDate = (raw, year, month) => {
-      const s = String(raw || "").trim();
-      let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-      if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
-      m = s.match(/^(\d{1,2})[-/.](\d{1,2})$/);
-      if (m) return `${year}-${pad(m[1])}-${pad(m[2])}`;
-      m = s.match(/^(\d{1,2})$/);
-      if (m) return `${year}-${pad(month)}-${pad(m[1])}`;
-      return null;
-    };
-
     try {
       // 1. 并发拉取各月导出行（历史月命中永久缓存，仅当前月按 TTL 可能真正下载 ZIP）
       const fetched = await runWithConcurrency(
@@ -6565,7 +6577,7 @@
 
           // 8. 每日明细（key|||date）：费用 / 请求数 / Token
           if (keyName !== "unknown" && colDate >= 0) {
-            const date = normDate(row[colDate], year, month);
+            const date = normalizeExportDate(row[colDate], year, month);
             if (!date) continue;
             addDate(date);
             const pairKey = keyName + "|||" + date;
@@ -6819,21 +6831,38 @@
       }
       // 初始化或更新 Key 费用图表
       initOrUpdateKeyCostChart(keySection);
-      // 更新每日费用明细曲线图（数据源 state.keyDetailDailyData 在 fetchKeyDetailFromExport 中已更新）
-      const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
-      if (dailyChart && dailyChart.style.display !== "none") {
-        const container = dailyChart.querySelector('[data-dsapi-chart="keyDaily"]');
-        if (container) {
-          const option = buildKeyDailyChartOption();
-          if (option) {
-            getEcharts().then((echarts) => {
-              let instance = echarts.getInstanceByDom(container);
-              if (instance) { instance.setOption(option, { notMerge: true }); instance.resize(); }
-            });
-          }
-        }
-      }
+      // [修改] 原因：异步导出完成时图表实例可能尚未创建，需主动初始化而不是只更新已有实例
+      initOrUpdateKeyDailyChart(panel);
     }
+  }
+
+  /**
+   * 初始化或更新 Key 每日费用曲线图。
+   * 参数:
+   *   panel: HTMLElement，扩展面板根节点
+   * 返回:
+   *   void
+   */
+  function initOrUpdateKeyDailyChart(panel) {
+    const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
+    if (!dailyChart || dailyChart.style.display === "none") return;
+    const container = dailyChart.querySelector('[data-dsapi-chart="keyDaily"]');
+    if (!container) return;
+    const option = buildKeyDailyChartOption();
+    if (!option) return;
+    getEcharts().then((echarts) => {
+      if (!container.isConnected || !container.offsetParent) return;
+      let instance = echarts.getInstanceByDom(container);
+      if (!instance) {
+        instance = echarts.init(container, null, { renderer: "svg" });
+        const zr = instance.getZr();
+        zr.on("mousemove", (event) => startTooltipKeeper(instance, event));
+        zr.on("globalout", () => { if (stopTooltipKeeper(instance)) flushPendingChartUpdates(); });
+        state.charts.push({ key: "keyDaily", instance });
+      }
+      instance.setOption(option, { notMerge: true });
+      instance.resize();
+    });
   }
 
   function initOrUpdateKeyCostChart(keySection) {
@@ -7016,19 +7045,7 @@
     // 更新费用分布图
     initOrUpdateKeyCostChart(keySection);
     // 更新每日曲线图
-    const dailyChart = panel.querySelector(".dsapi-plus-daily-chart");
-    if (dailyChart && dailyChart.style.display !== "none") {
-      const container = dailyChart.querySelector('[data-dsapi-chart="keyDaily"]');
-      if (container) {
-        const option = buildKeyDailyChartOption();
-        if (option) {
-          getEcharts().then((echarts) => {
-            let instance = echarts.getInstanceByDom(container);
-            if (instance) { instance.setOption(option, { notMerge: true }); instance.resize(); }
-          });
-        }
-      }
-    }
+    initOrUpdateKeyDailyChart(panel);
     for (const { instance } of state.charts) instance?.resize();
   }
 
