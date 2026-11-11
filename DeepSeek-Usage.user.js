@@ -2,7 +2,7 @@
 // @name         DeepSeek Usage — DeepSeek用量页增强
 // @namespace    https://github.com/PingWangWang
 // @url          https://github.com/PingWangWang/DeepSeek-Usage.git
-// @version      1.38.19
+// @version      1.38.21
 // @description  用量页增强仪表盘：订阅推送（Markdown/截图+ImgBB/PicGo图床）、费用/Token构成、缓存命中率、Key明细（ZIP导入/模型统计/筛选密钥/每日费用曲线/多选删除配置）、月份切换、自动刷新数据、手机适配。
 // @author       PingWangWang
 // @icon         https://www.deepseek.com/favicon.ico
@@ -5546,7 +5546,7 @@
 
   function updatePanelIncremental(panel, panelData) {
     // [修复] 原因：解构漏掉 sortedModels/sortedKeys 导致 updatePanelIncremental 抛 ReferenceError，面板渲染中断
-    const { start, end, amount, summary, cost, sortedModels, sortedKeys, walletCnyBalance, usageDetail, updateTime } = panelData;
+    const { start, end, amount, summary, cost, sortedModels, sortedKeys, walletCnyBalance, usageDetail, updateTime, monthRangeLabel } = panelData;
 
     // 同步起/止双下拉框选中值（不再有单一 period 下拉）
     const startSelect = panel.querySelector(".dsapi-plus-range-start");
@@ -5569,8 +5569,8 @@
       }
     }
 
-    // [修改] 原因：已删除「请求统计 / Token统计 / Token构成」三个图表，头部数值只剩「模型分布」带 value
-    // 故 headingTexts 只保留模型分布一项，按索引对齐
+    // [修改] 原因：已删除「请求统计 / Token统计 / Token构成」三个图表，常规头部数值只剩「模型分布」
+    // 故 headingTexts 仍按索引对齐只更新模型分布；月度趋势的区间文字改由下方语义定位单独同步
     const headingValues = panel.querySelectorAll(".dsapi-plus-chart-heading-value");
     const headingTexts = [
       sortedModels.length ? `${sortedModels.length} 个活跃模型` : "暂无模型用量",
@@ -5578,6 +5578,19 @@
     headingValues.forEach((el, i) => {
       if (headingTexts[i] != null) el.textContent = headingTexts[i];
     });
+
+    // [修复] 原因：月度趋势标题的区间文字随起止月份变化，但面板渲染过一次后改选区间只走增量更新，
+    // 而上面的按索引映射不含该节点，导致标题一直停留在首次全量渲染时的旧区间（如 2026-11 ~ 2026-11）
+    const monthTrendHeading = panel.querySelector('[data-section="monthTrend"] .dsapi-plus-chart-heading');
+    if (monthTrendHeading) {
+      const monthTrendValue = monthTrendHeading.querySelector(".dsapi-plus-chart-heading-value");
+      if (monthTrendValue) {
+        monthTrendValue.textContent = monthRangeLabel;
+      } else {
+        // 兼容早期 DOM：标题存在但缺值节点时补齐，避免后续刷新依旧无处写入
+        monthTrendHeading.insertAdjacentHTML("beforeend", `<span class="dsapi-plus-chart-heading-value">${escapeHtml(monthRangeLabel)}</span>`);
+      }
+    }
 
     const detailLayout = panel.querySelector(".dsapi-plus-detail-layout");
     if (detailLayout && detailLayout.children[0]) {
